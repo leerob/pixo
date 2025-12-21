@@ -34,6 +34,56 @@ pub enum Token {
     },
 }
 
+/// Packed token representation (4 bytes) for cache-friendly encoding paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackedToken(u32);
+
+impl PackedToken {
+    const LITERAL_FLAG: u32 = 0x8000_0000;
+
+    #[inline]
+    /// Create a packed literal token.
+    pub fn literal(byte: u8) -> Self {
+        Self(Self::LITERAL_FLAG | byte as u32)
+    }
+
+    #[inline]
+    /// Create a packed match token.
+    pub fn match_(length: u16, distance: u16) -> Self {
+        // length in low 16 bits, distance in high 15 bits (distance <= 32768 fits 15 bits), top bit clear
+        let val = (distance as u32) << 16 | (length as u32);
+        Self(val)
+    }
+
+    #[inline]
+    /// Returns true if this is a literal.
+    pub fn is_literal(self) -> bool {
+        (self.0 & Self::LITERAL_FLAG) != 0
+    }
+
+    #[inline]
+    /// Get the literal byte if present.
+    pub fn as_literal(self) -> Option<u8> {
+        if self.is_literal() {
+            Some(self.0 as u8)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    /// Get (length, distance) if this is a match.
+    pub fn as_match(self) -> Option<(u16, u16)> {
+        if self.is_literal() {
+            None
+        } else {
+            let length = (self.0 & 0xFFFF) as u16;
+            let distance = (self.0 >> 16) as u16;
+            Some((length, distance))
+        }
+    }
+}
+
 /// Hash function for 4-byte sequences with better distribution.
 #[inline]
 fn hash4(data: &[u8], pos: usize) -> usize {
