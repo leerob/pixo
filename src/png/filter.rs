@@ -269,6 +269,62 @@ fn adaptive_filter(
     }
 }
 
+/// Adaptive filtering with a faster heuristic and early cutoffs.
+fn adaptive_filter_fast(
+    row: &[u8],
+    prev_row: &[u8],
+    bpp: usize,
+    output: &mut Vec<u8>,
+    scratch: &mut AdaptiveScratch,
+) {
+    scratch.clear();
+
+    // Try Sub first (good for high-frequency data)
+    filter_sub(row, bpp, &mut scratch.sub);
+    let mut best_filter = FILTER_SUB;
+    let mut best_score = score_filter(&scratch.sub);
+
+    // Early stop threshold: very low score, stop immediately.
+    let early_stop = (row.len() as u64 / 10).saturating_add(1);
+    if best_score <= early_stop {
+        output.push(best_filter);
+        output.extend_from_slice(&scratch.sub);
+        return;
+    }
+
+    // Try Up (good for smooth gradients)
+    filter_up(row, prev_row, &mut scratch.up);
+    let up_score = score_filter(&scratch.up);
+    if up_score < best_score {
+        best_score = up_score;
+        best_filter = FILTER_UP;
+    }
+    if best_score <= early_stop {
+        output.push(best_filter);
+        match best_filter {
+            FILTER_SUB => output.extend_from_slice(&scratch.sub),
+            FILTER_UP => output.extend_from_slice(&scratch.up),
+            _ => {}
+        }
+        return;
+    }
+
+    // Try Paeth last (more expensive)
+    filter_paeth(row, prev_row, bpp, &mut scratch.paeth);
+    let paeth_score = score_filter(&scratch.paeth);
+    if paeth_score < best_score {
+        best_filter = FILTER_PAETH;
+    }
+
+    output.push(best_filter);
+    match best_filter {
+        FILTER_SUB => output.extend_from_slice(&scratch.sub),
+        FILTER_UP => output.extend_from_slice(&scratch.up),
+        FILTER_PAETH => output.extend_from_slice(&scratch.paeth),
+        _ => unreachable!(),
+    }
+}
+
 /// Filter a single row with the configured strategy.
 fn filter_row(
     row: &[u8],
@@ -329,6 +385,16 @@ fn filter_row(
                 prev_row
             };
             adaptive_filter(row, p, bpp, output, scratch);
+        }
+        FilterStrategy::AdaptiveFast => {
+            let mut zero = Vec::new();
+            let p = if prev_row.is_empty() {
+                zero.resize(row.len(), 0);
+                &zero[..]
+            } else {
+                prev_row
+            };
+            adaptive_filter_fast(row, p, bpp, output, scratch);
         }
     }
 }
@@ -468,5 +534,25 @@ mod tests {
         assert_eq!(filtered.len(), 2 * (1 + 6)); // 2 rows * (1 filter + 6 data)
         assert_eq!(filtered[0], FILTER_NONE);
         assert_eq!(filtered[7], FILTER_NONE);
+    }
+
+    #[test]
+    fn test_apply_filters_adaptive_fast() {
+        let data = vec![
+            10, 20, 30, 40, 50, 60, // Row 1
+            70, 80, 90, 100, 110, 120, // Row 2
+        ];
+        let options = PngOptions {
+            filter_strategy: FilterStrategy::AdaptiveFast,
+            ..Default::default()
+        };
+
+        let filtered = apply_filters(&data, 2, 2, 3, &options);
+
+        // Two rows, each 1 filter byte + 6 bytes
+        assert_eq!(filtered.len(), 2 * (1 + 6));
+        // Filter bytes should be one of the defined filters
+        assert!(matches!(filtered[0], FILTER_SUB | FILTER_UP | FILTER_PAETH));
+        assert!(matches!(filtered[7], FILTER_SUB | FILTER_UP | FILTER_PAETH));
     }
 }

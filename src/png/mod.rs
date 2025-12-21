@@ -48,6 +48,8 @@ pub enum FilterStrategy {
     Paeth,
     /// Choose best filter per row (best compression, slower).
     Adaptive,
+    /// Adaptive but with early cut and limited trials (faster).
+    AdaptiveFast,
 }
 
 /// Encode raw pixel data as PNG.
