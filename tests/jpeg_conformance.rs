@@ -144,6 +144,16 @@ fn test_unsupported_color_type_rejected() {
     assert!(result.is_err());
 }
 
+#[test]
+fn test_image_too_large() {
+    // Just over the MAX_DIMENSION (65535)
+    let width = 65_536;
+    let height = 1;
+    let pixels = vec![0u8; (width as usize * height as usize * 3) as usize];
+    let err = jpeg::encode(&pixels, width, height, 85).unwrap_err();
+    assert!(matches!(err, comprs::Error::ImageTooLarge { .. }));
+}
+
 /// Test that encoding produces deterministic output.
 #[test]
 fn test_deterministic() {
