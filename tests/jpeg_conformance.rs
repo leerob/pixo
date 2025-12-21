@@ -254,6 +254,39 @@ fn test_jpeg_subsampling_420() {
     assert_eq!(decoded.dimensions(), (width, height));
 }
 
+/// Restart interval should emit DRI and decode successfully.
+#[test]
+fn test_jpeg_restart_interval_marker_and_decode() {
+    let width = 16;
+    let height = 16;
+    let mut rng = StdRng::seed_from_u64(5151);
+    let mut rgb = vec![0u8; (width * height * 3) as usize];
+    rng.fill(rgb.as_mut_slice());
+
+    let opts = jpeg::JpegOptions {
+        quality: 80,
+        subsampling: jpeg::Subsampling::S444,
+        restart_interval: Some(4),
+    };
+
+    let jpeg_bytes =
+        jpeg::encode_with_options(&rgb, width, height, 80, ColorType::Rgb, &opts).unwrap();
+
+    // Ensure DRI marker (0xFFDD) exists
+    let mut found_dri = false;
+    for w in jpeg_bytes.windows(2) {
+        if w == [0xFF, 0xDD] {
+            found_dri = true;
+            break;
+        }
+    }
+    assert!(found_dri, "DRI marker not found");
+
+    // Decode to verify validity
+    let decoded = image::load_from_memory(&jpeg_bytes).expect("decode with restart interval");
+    assert_eq!(decoded.dimensions(), (width, height));
+}
+
 /// Conformance: re-encode curated JPEG corpus and ensure decode succeeds.
 #[test]
 fn test_jpeg_corpus_reencode_decode() {
