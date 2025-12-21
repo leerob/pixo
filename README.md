@@ -38,7 +38,7 @@ let png_data = png::encode(&pixels, 3, 1, ColorType::Rgb).unwrap();
 use comprs::png::{PngOptions, FilterStrategy};
 
 let options = PngOptions {
-    compression_level: 9,  // 1-9, higher = better compression
+    compression_level: 9,  // validated: 1-9, higher = better compression
     filter_strategy: FilterStrategy::Adaptive,
 };
 let png_data = png::encode_with_options(&pixels, 3, 1, ColorType::Rgb, &options).unwrap();
@@ -59,6 +59,7 @@ use comprs::jpeg::{JpegOptions, Subsampling};
 let options = JpegOptions {
     quality: 85,
     subsampling: Subsampling::S420, // downsample chroma for smaller files
+    restart_interval: None,         // Some(n) inserts DRI markers every n MCUs
 };
 let jpeg_data = jpeg::encode_with_options(&pixels, 1, 1, 85, ColorType::Rgb, &options).unwrap();
 ```
