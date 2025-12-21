@@ -1,0 +1,29 @@
+[package]
+name = "comprs"
+version = "0.1.0"
+edition = "2021"
+description = "A minimal-dependency, high-performance image compression library"
+license = "MIT"
+readme = "README.md"
+keywords = ["image", "compression", "png", "jpeg", "encoding"]
+categories = ["compression", "encoding", "multimedia::images"]
+
+[lib]
+name = "comprs"
+path = "src/lib.rs"
+
+[features]
+default = []
+simd = []
+parallel = ["rayon"]
+
+[dependencies]
+rayon = { version = "1.10", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+image = "0.25"
+
+[[bench]]
+name = "encode_benchmark"
+harness = false

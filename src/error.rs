@@ -1,0 +1,75 @@
+//! Error types for the comprs library.
+
+use std::fmt;
+
+/// Result type alias for comprs operations.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Errors that can occur during image encoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Error {
+    /// Invalid image dimensions (zero width or height).
+    InvalidDimensions {
+        /// Image width.
+        width: u32,
+        /// Image height.
+        height: u32,
+    },
+    /// Pixel data length doesn't match expected size.
+    InvalidDataLength {
+        /// Expected number of bytes.
+        expected: usize,
+        /// Actual number of bytes provided.
+        actual: usize,
+    },
+    /// Invalid quality parameter (must be 1-100 for JPEG).
+    InvalidQuality(u8),
+    /// Image dimensions exceed maximum supported size.
+    ImageTooLarge {
+        /// Image width.
+        width: u32,
+        /// Image height.
+        height: u32,
+        /// Maximum supported dimension.
+        max: u32,
+    },
+    /// Unsupported color type for the format.
+    UnsupportedColorType,
+    /// Internal compression error.
+    CompressionError(String),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::InvalidDimensions { width, height } => {
+                write!(f, "Invalid image dimensions: {}x{}", width, height)
+            }
+            Error::InvalidDataLength { expected, actual } => {
+                write!(
+                    f,
+                    "Invalid pixel data length: expected {} bytes, got {}",
+                    expected, actual
+                )
+            }
+            Error::InvalidQuality(q) => {
+                write!(f, "Invalid quality {}: must be 1-100", q)
+            }
+            Error::ImageTooLarge { width, height, max } => {
+                write!(
+                    f,
+                    "Image {}x{} exceeds maximum dimension {}",
+                    width, height, max
+                )
+            }
+            Error::UnsupportedColorType => {
+                write!(f, "Unsupported color type for this format")
+            }
+            Error::CompressionError(msg) => {
+                write!(f, "Compression error: {}", msg)
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {}
