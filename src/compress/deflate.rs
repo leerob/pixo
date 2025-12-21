@@ -3,7 +3,9 @@
 //! Combines LZ77 compression with Huffman coding.
 
 use crate::bits::BitWriter64;
-use crate::compress::lz77::{Lz77Compressor, Token, MAX_MATCH_LENGTH, MIN_MATCH_LENGTH};
+use crate::compress::lz77::{
+    Lz77Compressor, PackedToken, Token, MAX_MATCH_LENGTH, MIN_MATCH_LENGTH,
+};
 use crate::compress::{adler32::adler32, huffman};
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -484,6 +486,50 @@ fn encode_fixed_huffman_with_capacity(tokens: &[Token], capacity_hint: usize) ->
     writer.finish()
 }
 
+/// Encode packed tokens using fixed Huffman codes (fast path).
+pub fn encode_fixed_huffman_packed(tokens: &[PackedToken]) -> Vec<u8> {
+    encode_fixed_huffman_packed_with_capacity(tokens, 1024)
+}
+
+fn encode_fixed_huffman_packed_with_capacity(
+    tokens: &[PackedToken],
+    capacity_hint: usize,
+) -> Vec<u8> {
+    let lit_rev = fixed_literal_codes_rev();
+    let dist_rev = fixed_distance_codes_rev();
+
+    let mut writer = BitWriter64::with_capacity(capacity_hint);
+
+    writer.write_bits(1, 1); // BFINAL
+    writer.write_bits(1, 2); // BTYPE fixed
+
+    for token in tokens {
+        if let Some(b) = token.as_literal() {
+            let (code, len) = lit_rev[b as usize];
+            writer.write_bits(code, len);
+        } else if let Some((length, distance)) = token.as_match() {
+            let (len_symbol, len_extra_bits, len_extra_value) = length_code(length);
+            let (len_code, len_len) = lit_rev[len_symbol as usize];
+            writer.write_bits(len_code, len_len);
+            if len_extra_bits > 0 {
+                writer.write_bits(len_extra_value as u32, len_extra_bits);
+            }
+
+            let (dist_symbol, dist_extra_bits, dist_extra_value) = distance_code(distance);
+            let (dist_code, dist_len) = dist_rev[dist_symbol as usize];
+            writer.write_bits(dist_code, dist_len);
+            if dist_extra_bits > 0 {
+                writer.write_bits(dist_extra_value as u32, dist_extra_bits);
+            }
+        }
+    }
+
+    let (eob_code, eob_len) = lit_rev[256];
+    writer.write_bits(eob_code, eob_len);
+
+    writer.finish()
+}
+
 /// Encode tokens using dynamic Huffman codes (RFC 1951).
 pub fn encode_dynamic_huffman(tokens: &[Token]) -> Vec<u8> {
     encode_dynamic_huffman_with_capacity(tokens, 1024)
@@ -599,6 +645,116 @@ fn encode_dynamic_huffman_with_capacity(tokens: &[Token], capacity_hint: usize) 
     }
 
     // End of block
+    let (eob_code, eob_len) = lit_rev[256];
+    writer.write_bits(eob_code, eob_len);
+
+    writer.finish()
+}
+
+/// Encode packed tokens using dynamic Huffman codes.
+pub fn encode_dynamic_huffman_packed(tokens: &[PackedToken]) -> Vec<u8> {
+    encode_dynamic_huffman_packed_with_capacity(tokens, 1024)
+}
+
+fn encode_dynamic_huffman_packed_with_capacity(
+    tokens: &[PackedToken],
+    capacity_hint: usize,
+) -> Vec<u8> {
+    // Frequencies
+    let mut lit_freqs = vec![0u32; 286]; // 0-285
+    let mut dist_freqs = vec![0u32; 30]; // 0-29
+
+    for token in tokens {
+        if let Some(b) = token.as_literal() {
+            lit_freqs[b as usize] += 1;
+        } else if let Some((length, distance)) = token.as_match() {
+            let (len_symbol, _, _) = length_code(length);
+            lit_freqs[len_symbol as usize] += 1;
+
+            let (dist_symbol, _, _) = distance_code(distance);
+            dist_freqs[dist_symbol as usize] += 1;
+        }
+    }
+    // End-of-block
+    lit_freqs[256] += 1;
+
+    if dist_freqs.iter().all(|&f| f == 0) {
+        dist_freqs[0] = 1;
+    }
+
+    let lit_codes = huffman::build_codes(&lit_freqs, huffman::MAX_CODE_LENGTH);
+    let dist_codes = huffman::build_codes(&dist_freqs, huffman::MAX_CODE_LENGTH);
+    let lit_rev = prepare_reversed_codes(&lit_codes);
+    let dist_rev = prepare_reversed_codes(&dist_codes);
+
+    let mut lit_lengths: Vec<u8> = lit_codes.iter().map(|c| c.length).collect();
+    let mut dist_lengths: Vec<u8> = dist_codes.iter().map(|c| c.length).collect();
+
+    let hlit = (last_nonzero(&lit_lengths).saturating_sub(257)).min(29);
+    let hdist = (last_nonzero(&dist_lengths).saturating_sub(1)).min(29);
+
+    lit_lengths.truncate(257 + hlit as usize);
+    dist_lengths.truncate(1 + hdist as usize);
+
+    let mut cl_freqs = vec![0u32; 19];
+    let rle = rle_code_lengths(&lit_lengths, &dist_lengths, &mut cl_freqs);
+
+    let cl_codes = huffman::build_codes(&cl_freqs, 7);
+    let cl_rev = prepare_reversed_codes(&cl_codes);
+
+    let cl_order: [usize; 19] = [
+        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+    ];
+    let mut hclen = 0;
+    for (i, &idx) in cl_order.iter().enumerate().rev() {
+        if cl_codes[idx].length > 0 {
+            hclen = i as u8;
+            break;
+        }
+    }
+
+    let mut writer = BitWriter64::with_capacity(capacity_hint);
+    writer.write_bits(1, 1); // BFINAL (single block)
+    writer.write_bits(2, 2); // BTYPE=10 (dynamic)
+
+    writer.write_bits(hlit as u32, 5); // HLIT
+    writer.write_bits(hdist as u32, 5); // HDIST
+    writer.write_bits(hclen as u32, 4); // HCLEN
+
+    for &idx in cl_order.iter().take(hclen as usize + 4) {
+        let (code, len) = cl_rev[idx];
+        writer.write_bits(code, len);
+    }
+
+    for (sym, extra_bits, extra_len) in rle {
+        let (code, len) = cl_rev[sym as usize];
+        writer.write_bits(code, len);
+        if extra_len > 0 {
+            writer.write_bits(extra_bits as u32, extra_len);
+        }
+    }
+
+    for token in tokens {
+        if let Some(b) = token.as_literal() {
+            let (code, len) = lit_rev[b as usize];
+            writer.write_bits(code, len);
+        } else if let Some((length, distance)) = token.as_match() {
+            let (len_symbol, len_extra_bits, len_extra_value) = length_code(length);
+            let (len_code, len_len) = lit_rev[len_symbol as usize];
+            writer.write_bits(len_code, len_len);
+            if len_extra_bits > 0 {
+                writer.write_bits(len_extra_value as u32, len_extra_bits);
+            }
+
+            let (dist_symbol, dist_extra_bits, dist_extra_value) = distance_code(distance);
+            let (dist_code, dist_len) = dist_rev[dist_symbol as usize];
+            writer.write_bits(dist_code, dist_len);
+            if dist_extra_bits > 0 {
+                writer.write_bits(dist_extra_value as u32, dist_extra_bits);
+            }
+        }
+    }
+
     let (eob_code, eob_len) = lit_rev[256];
     writer.write_bits(eob_code, eob_len);
 
