@@ -37,14 +37,11 @@ const SOS: u16 = 0xFFDA; // Start of Scan
 /// # Returns
 /// Complete JPEG file as bytes.
 pub fn encode(data: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>> {
-    encode_with_options(
-        data,
-        width,
-        height,
+    let options = JpegOptions {
         quality,
-        ColorType::Rgb,
-        &JpegOptions::default(),
-    )
+        subsampling: Subsampling::S444,
+    };
+    encode_with_options(data, width, height, quality, ColorType::Rgb, &options)
 }
 
 /// Encode raw pixel data as JPEG with specified color type.
@@ -55,14 +52,11 @@ pub fn encode_with_color(
     quality: u8,
     color_type: ColorType,
 ) -> Result<Vec<u8>> {
-    encode_with_options(
-        data,
-        width,
-        height,
+    let options = JpegOptions {
         quality,
-        color_type,
-        &JpegOptions::default(),
-    )
+        subsampling: Subsampling::S444,
+    };
+    encode_with_options(data, width, height, quality, color_type, &options)
 }
 
 /// Chroma subsampling options.
@@ -97,14 +91,11 @@ pub fn encode_with_options(
     data: &[u8],
     width: u32,
     height: u32,
-    quality: u8,
+    _quality: u8,
     color_type: ColorType,
     options: &JpegOptions,
 ) -> Result<Vec<u8>> {
     // Validate quality
-    if quality == 0 || quality > 100 {
-        return Err(Error::InvalidQuality(quality));
-    }
     if options.quality == 0 || options.quality > 100 {
         return Err(Error::InvalidQuality(options.quality));
     }
