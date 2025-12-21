@@ -147,6 +147,28 @@ The library includes:
 - JPEG encoder processes images in 8×8 blocks for cache efficiency
 - All algorithms minimize allocations during encoding
 
+## 📚 Documentation
+
+We provide comprehensive documentation explaining the algorithms and compression strategies used in this library. These guides are designed to be accessible to developers who may not be familiar with low-level compression details.
+
+### Getting Started
+
+- **[Documentation Index](./docs/README.md)** — Start here for an overview and reading guide
+- **[Introduction to Image Compression](./docs/introduction-to-image-compression.md)** — Why and how we compress images
+
+### Core Compression Algorithms
+
+- **[Huffman Coding](./docs/huffman-coding.md)** — Optimal variable-length codes based on symbol frequency
+- **[LZ77 Compression](./docs/lz77-compression.md)** — Dictionary-based compression with sliding windows
+- **[DEFLATE Algorithm](./docs/deflate.md)** — How LZ77 and Huffman combine for powerful compression
+
+### Image Format Documentation
+
+- **[PNG Encoding](./docs/png-encoding.md)** — Lossless compression with predictive filtering
+- **[JPEG Encoding](./docs/jpeg-encoding.md)** — Lossy compression pipeline overview
+- **[Discrete Cosine Transform (DCT)](./docs/dct.md)** — The mathematical heart of JPEG
+- **[JPEG Quantization](./docs/quantization.md)** — How JPEG achieves dramatic compression ratios
+
 ## License
 
 MIT
