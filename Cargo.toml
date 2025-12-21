@@ -23,6 +23,7 @@ rayon = { version = "1.10", optional = true }
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 image = "0.25"
+rand = "0.8"
 
 
 [[bench]]

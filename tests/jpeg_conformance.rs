@@ -4,6 +4,7 @@
 //! that encoded images contain proper markers.
 
 use comprs::{jpeg, ColorType};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 /// Test that JPEG output has correct markers.
 #[test]
@@ -161,6 +162,29 @@ fn test_pattern_compression() {
     // Solid should be smallest, noisy should be largest
     assert!(solid_result.len() < gradient_result.len());
     assert!(gradient_result.len() < noisy_result.len());
+}
+
+/// Ensure encoded JPEGs decode via `image` for RGB and Gray.
+#[test]
+fn test_jpeg_decode_via_image() {
+    // RGB pattern
+    let mut rgb = vec![0u8; 8 * 8 * 3];
+    for i in 0..rgb.len() {
+        rgb[i] = (i as u8).wrapping_mul(31);
+    }
+    let jpeg_rgb = jpeg::encode(&rgb, 8, 8, 85).unwrap();
+    let decoded_rgb = image::load_from_memory(&jpeg_rgb).expect("decode rgb");
+    assert_eq!(decoded_rgb.width(), 8);
+    assert_eq!(decoded_rgb.height(), 8);
+
+    // Grayscale random
+    let mut rng = StdRng::seed_from_u64(1337);
+    let mut gray = vec![0u8; 7 * 5];
+    rng.fill(gray.as_mut_slice());
+    let jpeg_gray = jpeg::encode_with_color(&gray, 7, 5, 75, ColorType::Gray).unwrap();
+    let decoded_gray = image::load_from_memory(&jpeg_gray).expect("decode gray");
+    assert_eq!(decoded_gray.width(), 7);
+    assert_eq!(decoded_gray.height(), 5);
 }
 
 /// Test that DQT tables are present.

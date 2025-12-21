@@ -4,6 +4,7 @@
 //! that encoded images can be decoded correctly.
 
 use comprs::{png, ColorType};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 /// Test that PNG output has correct header.
 #[test]
@@ -137,6 +138,34 @@ fn test_png_roundtrip_decode_rgb() {
     assert_eq!(decoded.width(), width);
     assert_eq!(decoded.height(), height);
     assert_eq!(decoded.as_raw(), &pixels);
+}
+
+/// Randomized small-images roundtrip across color types to ensure decodability.
+#[test]
+fn test_png_roundtrip_random_small() {
+    let mut rng = StdRng::seed_from_u64(42);
+    let dims = [(1, 1), (2, 3), (3, 2), (4, 4), (8, 5)];
+    let color_types = [
+        ColorType::Gray,
+        ColorType::GrayAlpha,
+        ColorType::Rgb,
+        ColorType::Rgba,
+    ];
+
+    for &(w, h) in &dims {
+        for &ct in &color_types {
+            let bpp = ct.bytes_per_pixel();
+            let mut pixels = vec![0u8; (w * h) as usize * bpp];
+            rng.fill(pixels.as_mut_slice());
+
+            let encoded =
+                png::encode(&pixels, w as u32, h as u32, ct).expect("encode random png");
+            let decoded = image::load_from_memory(&encoded).expect("decode").to_rgba8();
+
+            assert_eq!(decoded.width(), w as u32);
+            assert_eq!(decoded.height(), h as u32);
+        }
+    }
 }
 
 /// Test filter strategies produce valid output.
