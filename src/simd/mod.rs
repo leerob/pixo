@@ -87,6 +87,11 @@ pub fn score_filter(filtered: &[u8]) -> u64 {
 pub fn filter_sub(row: &[u8], bpp: usize, output: &mut Vec<u8>) {
     #[cfg(target_arch = "x86_64")]
     {
+        if is_x86_feature_detected!("avx2") {
+            // Safety: We've verified AVX2 is available
+            unsafe { x86_64::filter_sub_avx2(row, bpp, output) };
+            return;
+        }
         if is_x86_feature_detected!("sse2") {
             // Safety: We've verified SSE2 is available
             unsafe { x86_64::filter_sub_sse2(row, bpp, output) };
@@ -102,6 +107,11 @@ pub fn filter_sub(row: &[u8], bpp: usize, output: &mut Vec<u8>) {
 pub fn filter_up(row: &[u8], prev_row: &[u8], output: &mut Vec<u8>) {
     #[cfg(target_arch = "x86_64")]
     {
+        if is_x86_feature_detected!("avx2") {
+            // Safety: We've verified AVX2 is available
+            unsafe { x86_64::filter_up_avx2(row, prev_row, output) };
+            return;
+        }
         if is_x86_feature_detected!("sse2") {
             // Safety: We've verified SSE2 is available
             unsafe { x86_64::filter_up_sse2(row, prev_row, output) };

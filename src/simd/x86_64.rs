@@ -424,3 +424,69 @@ pub unsafe fn filter_up_sse2(row: &[u8], prev_row: &[u8], output: &mut Vec<u8>) 
         i += 1;
     }
 }
+
+/// Apply Sub filter using AVX2 (32 bytes at a time).
+///
+/// # Safety
+/// Caller must ensure AVX2 is available on the current CPU.
+#[target_feature(enable = "avx2")]
+pub unsafe fn filter_sub_avx2(row: &[u8], bpp: usize, output: &mut Vec<u8>) {
+    let len = row.len();
+    output.reserve(len);
+
+    // First bpp bytes unchanged
+    output.extend_from_slice(&row[..bpp.min(len)]);
+
+    if len <= bpp {
+        return;
+    }
+
+    let remaining = &row[bpp..];
+    let left = &row[..len - bpp];
+
+    let mut i = 0;
+    let rem_len = remaining.len();
+
+    while i + 32 <= rem_len {
+        let curr = _mm256_loadu_si256(remaining[i..].as_ptr() as *const __m256i);
+        let prev = _mm256_loadu_si256(left[i..].as_ptr() as *const __m256i);
+        let diff = _mm256_sub_epi8(curr, prev);
+
+        let mut buf = [0u8; 32];
+        _mm256_storeu_si256(buf.as_mut_ptr() as *mut __m256i, diff);
+        output.extend_from_slice(&buf);
+        i += 32;
+    }
+
+    while i < rem_len {
+        output.push(remaining[i].wrapping_sub(left[i]));
+        i += 1;
+    }
+}
+
+/// Apply Up filter using AVX2 (32 bytes at a time).
+///
+/// # Safety
+/// Caller must ensure AVX2 is available on the current CPU.
+#[target_feature(enable = "avx2")]
+pub unsafe fn filter_up_avx2(row: &[u8], prev_row: &[u8], output: &mut Vec<u8>) {
+    let len = row.len();
+    output.reserve(len);
+
+    let mut i = 0;
+    while i + 32 <= len {
+        let curr = _mm256_loadu_si256(row[i..].as_ptr() as *const __m256i);
+        let prev = _mm256_loadu_si256(prev_row[i..].as_ptr() as *const __m256i);
+        let diff = _mm256_sub_epi8(curr, prev);
+
+        let mut buf = [0u8; 32];
+        _mm256_storeu_si256(buf.as_mut_ptr() as *mut __m256i, diff);
+        output.extend_from_slice(&buf);
+        i += 32;
+    }
+
+    while i < len {
+        output.push(row[i].wrapping_sub(prev_row[i]));
+        i += 1;
+    }
+}
