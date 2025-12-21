@@ -6,6 +6,7 @@
 use comprs::{jpeg, ColorType};
 use image::GenericImageView;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use proptest::prelude::*;
 mod support;
 use support::jpeg_corpus::read_jpeg_corpus;
 
@@ -285,6 +286,50 @@ fn test_jpeg_restart_interval_marker_and_decode() {
     // Decode to verify validity
     let decoded = image::load_from_memory(&jpeg_bytes).expect("decode with restart interval");
     assert_eq!(decoded.dimensions(), (width, height));
+}
+
+fn jpeg_case_strategy(
+) -> impl Strategy<Value = (u32, u32, u8, jpeg::Subsampling, Option<u16>, Vec<u8>)> {
+    (
+        1u32..24,
+        1u32..24,
+        30u8..96,
+        prop_oneof![
+            Just(jpeg::Subsampling::S444),
+            Just(jpeg::Subsampling::S420),
+        ],
+        prop_oneof![Just(None), (1u16..8u16).prop_map(Some)],
+    )
+        .prop_flat_map(|(w, h, q, subsampling, restart_interval)| {
+            let len = (w * h * 3) as usize;
+            proptest::collection::vec(any::<u8>(), len).prop_map(move |data| {
+                (w, h, q, subsampling, restart_interval, data)
+            })
+        })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(24))]
+    #[test]
+    fn prop_jpeg_decode_randomized_options(
+        (w, h, quality, subsampling, restart_interval, data) in jpeg_case_strategy()
+    ) {
+        let opts = jpeg::JpegOptions {
+            quality,
+            subsampling,
+            restart_interval,
+        };
+
+        let encoded = jpeg::encode_with_options(&data, w, h, quality, ColorType::Rgb, &opts).unwrap();
+
+        if restart_interval.is_some() {
+            prop_assert!(encoded.windows(2).any(|w| w == [0xFF, 0xDD]));
+        }
+        prop_assert!(encoded.ends_with(&[0xFF, 0xD9]));
+
+        let decoded = image::load_from_memory(&encoded).expect("decode");
+        prop_assert_eq!(decoded.dimensions(), (w, h));
+    }
 }
 
 /// Conformance: re-encode curated JPEG corpus and ensure decode succeeds.

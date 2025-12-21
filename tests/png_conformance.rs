@@ -6,6 +6,7 @@
 use comprs::{png, ColorType};
 use image::GenericImageView;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use proptest::prelude::*;
 mod support;
 use support::pngsuite::read_pngsuite;
 
@@ -168,6 +169,26 @@ fn test_png_roundtrip_random_small() {
             assert_eq!(decoded.width(), w as u32);
             assert_eq!(decoded.height(), h as u32);
         }
+    }
+}
+
+fn png_rgb_image_strategy() -> impl Strategy<Value = (u32, u32, Vec<u8>)> {
+    (1u32..16, 1u32..16).prop_flat_map(|(w, h)| {
+        let len = (w * h * 3) as usize;
+        proptest::collection::vec(any::<u8>(), len).prop_map(move |data| (w, h, data))
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(32))]
+    #[test]
+    fn prop_png_roundtrip_rgb_lossless((w, h, data) in png_rgb_image_strategy()) {
+        let encoded = png::encode(&data, w, h, ColorType::Rgb).unwrap();
+        let decoded = image::load_from_memory(&encoded).expect("decode").to_rgb8();
+
+        prop_assert_eq!(decoded.width(), w);
+        prop_assert_eq!(decoded.height(), h);
+        prop_assert_eq!(decoded.as_raw(), &data);
     }
 }
 
