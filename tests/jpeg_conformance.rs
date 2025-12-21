@@ -4,7 +4,10 @@
 //! that encoded images contain proper markers.
 
 use comprs::{jpeg, ColorType};
+use image::GenericImageView;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+mod support;
+use support::jpeg_corpus::read_jpeg_corpus;
 
 /// Test that JPEG output has correct markers.
 #[test]
@@ -215,6 +218,30 @@ fn test_jpeg_decode_random_small() {
             assert_eq!(decoded.width(), w as u32);
             assert_eq!(decoded.height(), h as u32);
         }
+    }
+}
+
+/// Conformance: re-encode curated JPEG corpus and ensure decode succeeds.
+#[test]
+fn test_jpeg_corpus_reencode_decode() {
+    let Ok(cases) = read_jpeg_corpus() else {
+        eprintln!("Skipping JPEG corpus test: fixtures unavailable (offline?)");
+        return;
+    };
+
+    for (path, bytes) in cases {
+        let img = image::load_from_memory(&bytes).expect("decode jpeg fixture");
+        let rgb = img.to_rgb8();
+        let (w, h) = img.dimensions();
+
+        let encoded = jpeg::encode(rgb.as_raw(), w, h, 85).expect("encode jpeg");
+        let decoded = image::load_from_memory(&encoded).expect("decode encoded");
+        assert_eq!(
+            decoded.dimensions(),
+            (w, h),
+            "dimension mismatch for {:?}",
+            path
+        );
     }
 }
 
