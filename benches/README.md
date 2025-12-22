@@ -13,6 +13,7 @@ cargo bench --bench encode_benchmark  # PNG/JPEG encoding vs image crate
 cargo bench --bench deflate_micro     # DEFLATE compression vs flate2
 cargo bench --bench components        # Component-level benchmarks (DCT, Huffman, etc.)
 cargo bench --bench size_snapshot -- --nocapture  # Quick size/time snapshot vs image crate
+cargo bench --bench preset_compare    # Compare preset throughput (PNG/JPEG)
 ```
 
 ## Benchmark Suites
@@ -210,6 +211,8 @@ You can also run and capture the snapshot via:
 ```bash
 ./scripts/size_snapshot.sh -- --nocapture
 ```
+
+For preset throughput baselines, see `benches/preset_compare_baseline.md` and rerun on your hardware (`cargo bench --bench preset_compare -- --sample-size 20`, or `--sample-size 10` for quicker runs).
 
 ### Comparison to Alternatives
 

@@ -60,6 +60,10 @@ harness = false
 name = "size_snapshot"
 harness = false
 
+[[bench]]
+name = "preset_compare"
+harness = false
+
 [profile.release]
 lto = true              # Link-time optimization (merges all code, removes unused)
 opt-level = "z"         # Optimize for size
