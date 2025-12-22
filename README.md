@@ -177,6 +177,7 @@ comprs input.png -o output.jpg -v
 | `--adaptive-sample-interval` | Rows between full adaptive evaluations when using `adaptive-sampled` | 4 |
 | `--png-preset`      | PNG preset (`fast`, `max`) that overrides compression/filter     | _none_                     |
 | `--jpeg-preset`     | JPEG preset (`fast`, `max-quality`) that overrides quality/subsampling | _none_                |
+| `--optimize-huffman`| Optimize JPEG Huffman tables (two-pass; smaller files)           | false                      |
 | `--grayscale`       | Convert to grayscale                                             | false                      |
 | `-v, --verbose`     | Show detailed output                                             | false                      |
 

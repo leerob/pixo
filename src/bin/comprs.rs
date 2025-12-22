@@ -65,6 +65,10 @@ struct Args {
     #[arg(long, value_enum)]
     jpeg_preset: Option<JpegPresetArg>,
 
+    /// Optimize JPEG Huffman tables (two-pass; smaller files, slower)
+    #[arg(long, default_value_t = false)]
+    optimize_huffman: bool,
+
     /// Convert to grayscale
     #[arg(long)]
     grayscale: bool,
@@ -514,6 +518,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         quality: args.quality,
                         subsampling: args.subsampling.into(),
                         restart_interval: None,
+                        optimize_huffman: args.optimize_huffman,
                     },
                 ),
             };
