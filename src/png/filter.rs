@@ -60,35 +60,78 @@ pub fn apply_filters(
     let filtered_row_size = row_bytes + 1; // +1 for filter type byte
     let zero_row = vec![0u8; row_bytes];
 
+    // Height-aware strategy tweaks: for tall images, favor sampled adaptive to
+    // reduce per-row work while preserving quality.
+    let mut strategy = options.filter_strategy;
+    let area = (width as usize).saturating_mul(height as usize);
+    // For very small images, prefer Sub filter to minimize CPU overhead.
+    if area <= 4096
+        && matches!(
+            strategy,
+            FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast
+        )
+    {
+        strategy = FilterStrategy::Sub;
+    } else if matches!(strategy, FilterStrategy::AdaptiveFast) && height >= 512 {
+        let interval = if height >= 2048 { 8 } else { 4 };
+        strategy = FilterStrategy::AdaptiveSampled { interval };
+    }
+
+    // Fast high-entropy detection: if the first row has almost no identical
+    // neighboring bytes (indicative of noisy data) and the image is reasonably
+    // large, skip adaptive filtering entirely and use None to save scoring work.
+    if area >= 16_384
+        && matches!(
+            strategy,
+            FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast | FilterStrategy::AdaptiveSampled { .. }
+        )
+    {
+        let first_row = &data[..row_bytes];
+        if is_high_entropy_row(first_row) {
+            strategy = FilterStrategy::None;
+        }
+    }
+
     // Parallel path (only for adaptive; other strategies are trivial)
     #[cfg(feature = "parallel")]
     {
-        if matches!(options.filter_strategy, FilterStrategy::Adaptive) && height > 1 {
+        // Parallel gains when rows are numerous; avoid overhead on tiny images.
+        if height > 32
+            && matches!(strategy, FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast | FilterStrategy::AdaptiveSampled { .. })
+        {
             return apply_filters_parallel(
                 data,
                 height as usize,
                 row_bytes,
                 bytes_per_pixel,
                 filtered_row_size,
-                options.filter_strategy,
+                strategy,
             );
         }
     }
 
     // Sequential path
     let mut output = Vec::with_capacity(filtered_row_size * height as usize);
-    let mut prev_row = vec![0u8; row_bytes];
+    let mut prev_row: &[u8] = &zero_row;
     let mut adaptive_scratch = AdaptiveScratch::new(row_bytes);
     let mut last_filter: u8 = FILTER_PAETH; // default guess for sampled reuse
+    // Track last used filter to bias adaptive_fast toward recent winner.
+    let mut last_adaptive_filter: Option<u8> = None;
 
     for y in 0..height as usize {
         let row_start = y * row_bytes;
         let row = &data[row_start..row_start + row_bytes];
-        match options.filter_strategy {
+        match strategy {
             FilterStrategy::AdaptiveSampled { interval } if interval > 1 => {
                 let interval = interval.max(1) as usize;
-                let prev = if y == 0 { &zero_row[..] } else { &prev_row[..] };
-                if y % interval == 0 {
+                let prev = if y == 0 { &zero_row[..] } else { prev_row };
+                // Dynamic interval: more sampling on small images, coarser on tall images.
+                let eff_interval = if height as usize > 512 {
+                    interval.max(4)
+                } else {
+                    interval
+                };
+                if y % eff_interval == 0 {
                     let base = output.len();
                     adaptive_filter(
                         row,
@@ -112,26 +155,45 @@ pub fn apply_filters(
                     );
                 }
             }
+            FilterStrategy::AdaptiveFast => {
+                let base = output.len();
+                filter_row(
+                    row,
+                    if y == 0 { &zero_row[..] } else { prev_row },
+                    bytes_per_pixel,
+                    // Bias adaptive fast toward the previous winning filter.
+                    match last_adaptive_filter {
+                        Some(FILTER_SUB) => FilterStrategy::Sub,
+                        Some(FILTER_UP) => FilterStrategy::Up,
+                        Some(FILTER_PAETH) => FilterStrategy::Paeth,
+                        _ => FilterStrategy::AdaptiveFast,
+                    },
+                    &mut output,
+                    &mut adaptive_scratch,
+                );
+                if let Some(&f) = output.get(base) {
+                    last_filter = f;
+                    last_adaptive_filter = Some(f);
+                }
+            }
             _ => {
                 let base = output.len();
                 filter_row(
                     row,
-                    if y == 0 { &zero_row[..] } else { &prev_row[..] },
+                    if y == 0 { &zero_row[..] } else { prev_row },
                     bytes_per_pixel,
                     options.filter_strategy,
                     &mut output,
                     &mut adaptive_scratch,
                 );
-                if matches!(options.filter_strategy, FilterStrategy::AdaptiveFast) {
-                    if let Some(&f) = output.get(base) {
-                        last_filter = f;
-                    }
+                if let Some(&f) = output.get(base) {
+                    last_filter = f;
                 }
             }
         }
 
-        // Update previous row
-        prev_row.copy_from_slice(row);
+        // Update previous row reference
+        prev_row = row;
     }
 
     output
@@ -191,36 +253,31 @@ fn filter_average(row: &[u8], prev_row: &[u8], bpp: usize, output: &mut Vec<u8>)
 
 /// Paeth filter: difference from Paeth predictor.
 fn filter_paeth(row: &[u8], prev_row: &[u8], bpp: usize, output: &mut Vec<u8>) {
-    for (i, &byte) in row.iter().enumerate() {
-        let left = if i >= bpp { row[i - bpp] } else { 0 };
-        let above = prev_row[i];
-        let upper_left = if i >= bpp { prev_row[i - bpp] } else { 0 };
-        let predicted = paeth_predictor(left, above, upper_left);
-        output.push(byte.wrapping_sub(predicted));
+    #[cfg(feature = "simd")]
+    {
+        simd::filter_paeth(row, prev_row, bpp, output);
+        return;
+    }
+
+    #[cfg(not(feature = "simd"))]
+    {
+        for (i, &byte) in row.iter().enumerate() {
+            let left = if i >= bpp { row[i - bpp] } else { 0 };
+            let above = prev_row[i];
+            let upper_left = if i >= bpp { prev_row[i - bpp] } else { 0 };
+            let predicted = paeth_predictor(left, above, upper_left);
+            output.push(byte.wrapping_sub(predicted));
+        }
     }
 }
 
 /// Paeth predictor function.
 ///
 /// Selects the value (a, b, or c) closest to p = a + b - c.
+#[allow(dead_code)]
 #[inline]
 fn paeth_predictor(a: u8, b: u8, c: u8) -> u8 {
-    let a = a as i16;
-    let b = b as i16;
-    let c = c as i16;
-
-    let p = a + b - c;
-    let pa = (p - a).abs();
-    let pb = (p - b).abs();
-    let pc = (p - c).abs();
-
-    if pa <= pb && pa <= pc {
-        a as u8
-    } else if pb <= pc {
-        b as u8
-    } else {
-        c as u8
-    }
+    crate::simd::fallback::fallback_paeth_predictor(a, b, c)
 }
 
 /// Adaptive filter selection: try all filters and pick the best.
@@ -237,7 +294,8 @@ fn adaptive_filter(
     let mut best_filter = FILTER_NONE;
     let mut best_score = u64::MAX;
     // Early-stop threshold: if a candidate beats this, skip remaining filters.
-    let early_stop = (row.len() as u64 / 8).saturating_add(1);
+    // Bias toward speed: allow earlier exit.
+    let early_stop = (row.len() as u64 / 4).saturating_add(1);
 
     // Try None filter first
     scratch.none.extend_from_slice(row);
@@ -332,8 +390,8 @@ fn adaptive_filter_fast(
     let mut best_filter = FILTER_SUB;
     let mut best_score = score_filter(&scratch.sub);
 
-    // Early stop threshold: very low score, stop immediately.
-    let early_stop = (row.len() as u64 / 10).saturating_add(1);
+    // Early stop threshold: very low score, stop immediately. Bias toward speed.
+    let early_stop = (row.len() as u64 / 8).saturating_add(1);
     if best_score <= early_stop {
         output.push(best_filter);
         output.extend_from_slice(&scratch.sub);
@@ -446,9 +504,12 @@ fn apply_filters_parallel(
     strategy: FilterStrategy,
 ) -> Vec<u8> {
     let zero_row = vec![0u8; row_bytes];
-    let rows: Vec<Vec<u8>> = (0..height)
-        .into_par_iter()
-        .map(|y| {
+    let mut output = vec![0u8; filtered_row_size * height];
+
+    output
+        .par_chunks_mut(filtered_row_size)
+        .enumerate()
+        .for_each(|(y, out_row)| {
             let row_start = y * row_bytes;
             let row = &data[row_start..row_start + row_bytes];
             let prev = if y == 0 {
@@ -456,17 +517,17 @@ fn apply_filters_parallel(
             } else {
                 &data[(y - 1) * row_bytes..y * row_bytes]
             };
-            let mut out = Vec::with_capacity(filtered_row_size);
             let mut scratch = AdaptiveScratch::new(row_bytes);
-            filter_row(row, prev, bpp, strategy, &mut out, &mut scratch);
-            out
-        })
-        .collect();
+            let mut row_buf = Vec::with_capacity(filtered_row_size);
+            filter_row(row, prev, bpp, strategy, &mut row_buf, &mut scratch);
+            debug_assert_eq!(
+                row_buf.len(),
+                filtered_row_size,
+                "filtered row size mismatch"
+            );
+            out_row.copy_from_slice(&row_buf);
+        });
 
-    let mut output = Vec::with_capacity(filtered_row_size * height);
-    for row in rows {
-        output.extend_from_slice(&row);
-    }
     output
 }
 
@@ -487,6 +548,36 @@ fn score_filter(filtered: &[u8]) -> u64 {
             .map(|&b| (b as i8).unsigned_abs() as u64)
             .sum()
     }
+}
+
+/// Simple high-entropy detector:
+/// - Fewer than 1% of neighboring bytes are equal (no runs)
+/// - The most common delta between neighbors accounts for <10% of positions
+/// This avoids misclassifying smooth gradients (constant delta).
+/// Guarded to rows >= 1024 bytes to avoid noise.
+fn is_high_entropy_row(row: &[u8]) -> bool {
+    if row.len() < 1024 {
+        return false;
+    }
+    let mut equal_neighbors = 0usize;
+    let mut delta_hist = [0u32; 256];
+    let mut total_deltas = 0usize;
+    for w in row.windows(2) {
+        if w[0] == w[1] {
+            equal_neighbors += 1;
+        }
+        let delta = w[1].wrapping_sub(w[0]);
+        delta_hist[delta as usize] += 1;
+        total_deltas += 1;
+    }
+    let ratio = equal_neighbors as f32 / (row.len().saturating_sub(1) as f32);
+    let max_delta = delta_hist.iter().copied().max().unwrap_or(0);
+    let max_delta_ratio = if total_deltas == 0 {
+        1.0
+    } else {
+        max_delta as f32 / total_deltas as f32
+    };
+    ratio < 0.01 && max_delta_ratio < 0.10
 }
 
 #[cfg(test)]

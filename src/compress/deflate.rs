@@ -7,7 +7,9 @@ use crate::compress::lz77::{
     Lz77Compressor, PackedToken, Token, MAX_MATCH_LENGTH, MIN_MATCH_LENGTH,
 };
 use crate::compress::{adler32::adler32, huffman};
+use std::cell::RefCell;
 use std::sync::LazyLock;
+use std::thread_local;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -97,6 +99,88 @@ const LENGTH_LOOKUP: [(u8, u8); 256] = {
     table
 };
 
+/// Threshold (in tokens) above which we skip fixed-Huffman encoding and go
+/// straight to dynamic codes to avoid double-encoding overhead on large
+/// payloads (common for PNG scanlines).
+const DYNAMIC_ONLY_TOKEN_THRESHOLD: usize = 128;
+/// Below this token count, prefer fixed Huffman only to avoid double encoding.
+const FIXED_ONLY_TOKEN_THRESHOLD: usize = 128;
+/// Below this byte length, favor a simpler path and optionally skip dynamic Huffman.
+const SMALL_INPUT_BYTES: usize = 1 << 10; // 1 KiB
+/// Above this size and with high-entropy detection, skip LZ77/Huffman and emit stored blocks.
+const HIGH_ENTROPY_BAIL_BYTES: usize = 4 * 1024;
+/// When input has only literals (no matches) and meets this size, prefer stored blocks immediately.
+const STORED_LITERAL_ONLY_BYTES: usize = 8 * 1024;
+
+thread_local! {
+    /// Thread-local pool of reusable deflaters keyed by compression level.
+    static DEFLATE_REUSE: RefCell<Vec<Option<Deflater>>> = RefCell::new(Vec::new());
+}
+
+#[inline]
+fn with_reusable_deflater<T>(level: u8, f: impl FnOnce(&mut Deflater) -> T) -> T {
+    let level = level.clamp(1, 9);
+    DEFLATE_REUSE.with(|pool| {
+        let mut pool = pool.borrow_mut();
+        let idx = level as usize;
+        if pool.len() <= idx {
+            pool.resize_with(idx + 1, || None);
+        }
+        if pool[idx].as_ref().map(|d| d.level()) != Some(level) {
+            pool[idx] = Some(Deflater::new(level));
+        }
+        let deflater = pool[idx].as_mut().expect("deflater slot initialized");
+        f(deflater)
+    })
+}
+
+#[inline]
+fn encode_best_huffman(tokens: &[Token], est_bytes: usize) -> (Vec<u8>, bool) {
+    if tokens.len() <= FIXED_ONLY_TOKEN_THRESHOLD {
+        return (encode_fixed_huffman_with_capacity(tokens, est_bytes), false);
+    }
+
+    if tokens.len() >= DYNAMIC_ONLY_TOKEN_THRESHOLD {
+        return (
+            encode_dynamic_huffman_with_capacity(tokens, est_bytes),
+            true,
+        );
+    }
+
+    let fixed = encode_fixed_huffman_with_capacity(tokens, est_bytes);
+    let dynamic = encode_dynamic_huffman_with_capacity(tokens, est_bytes);
+    if dynamic.len() < fixed.len() {
+        (dynamic, true)
+    } else {
+        (fixed, false)
+    }
+}
+
+#[inline]
+fn encode_best_huffman_packed(tokens: &[PackedToken], est_bytes: usize) -> (Vec<u8>, bool) {
+    if tokens.len() <= FIXED_ONLY_TOKEN_THRESHOLD {
+        return (
+            encode_fixed_huffman_packed_with_capacity(tokens, est_bytes),
+            false,
+        );
+    }
+
+    if tokens.len() >= DYNAMIC_ONLY_TOKEN_THRESHOLD {
+        return (
+            encode_dynamic_huffman_packed_with_capacity(tokens, est_bytes),
+            true,
+        );
+    }
+
+    let fixed = encode_fixed_huffman_packed_with_capacity(tokens, est_bytes);
+    let dynamic = encode_dynamic_huffman_packed_with_capacity(tokens, est_bytes);
+    if dynamic.len() < fixed.len() {
+        (dynamic, true)
+    } else {
+        (fixed, false)
+    }
+}
+
 /// Lookup table for distance codes: maps distance (1-32768) to code index.
 /// Uses a two-level approach for efficiency.
 const DISTANCE_LOOKUP_SMALL: [u8; 512] = {
@@ -182,20 +266,10 @@ pub fn deflate(data: &[u8], level: u8) -> Vec<u8> {
         return writer.finish();
     }
 
-    // Use LZ77 to find matches
-    let mut lz77 = Lz77Compressor::new(level);
-    let tokens = lz77.compress(data);
-
-    // Rough output estimate to reduce reallocations.
-    let est_bytes = estimated_deflate_size(data.len(), level);
-
-    // Choose between fixed and dynamic Huffman based on output size.
-    let fixed = encode_fixed_huffman_with_capacity(&tokens, est_bytes);
-    let dynamic = encode_dynamic_huffman_with_capacity(&tokens, est_bytes);
-    if dynamic.len() < fixed.len() {
-        dynamic
+    if data.len() <= SMALL_INPUT_BYTES {
+        with_reusable_deflater(level, |deflater| deflater.compress_fixed_only(data))
     } else {
-        fixed
+        with_reusable_deflater(level, |deflater| deflater.compress(data))
     }
 }
 
@@ -217,21 +291,99 @@ pub fn deflate_packed(data: &[u8], level: u8) -> Vec<u8> {
         return writer.finish();
     }
 
-    // Use LZ77 to find matches
+    if data.len() <= SMALL_INPUT_BYTES {
+        with_reusable_deflater(level, |deflater| deflater.compress_fixed_only_packed(data))
+    } else {
+        with_reusable_deflater(level, |deflater| deflater.compress_packed(data))
+    }
+}
+
+/// Compress data using DEFLATE algorithm with packed tokens, returning stats.
+#[cfg(feature = "timing")]
+pub fn deflate_packed_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
+    if data.is_empty() {
+        let mut writer = BitWriter64::with_capacity(16);
+        writer.write_bits(1, 1); // BFINAL = 1
+        writer.write_bits(1, 2); // BTYPE = 01 (fixed Huffman)
+
+        let lit_codes = fixed_literal_codes_rev();
+        let (code, len) = lit_codes[256];
+        writer.write_bits(code, len);
+
+        return (
+            writer.finish(),
+            DeflateStats {
+                used_dynamic: false,
+                ..Default::default()
+            },
+        );
+    }
+
+    let t0 = Instant::now();
     let mut lz77 = Lz77Compressor::new(level);
     let tokens = lz77.compress_packed(data);
+    let lz77_time = t0.elapsed();
 
-    // Rough output estimate to reduce reallocations.
+    let (literal_count, match_count) = token_counts_packed(&tokens);
+
+    // Literal-only fast path to skip Huffman work for incompressible data.
+    if match_count == 0 && data.len() >= STORED_LITERAL_ONLY_BYTES {
+        let stored = deflate_stored(data);
+        let stats = DeflateStats {
+            lz77_time,
+            fixed_huffman_time: Duration::ZERO,
+            dynamic_huffman_time: Duration::ZERO,
+            choose_time: Duration::ZERO,
+            token_count: tokens.len(),
+            literal_count,
+            match_count,
+            used_dynamic: false,
+            used_stored_block: true,
+        };
+        return (stored, stats);
+    }
+
     let est_bytes = estimated_deflate_size(data.len(), level);
 
-    // Choose between fixed and dynamic Huffman based on output size.
+    let t1 = Instant::now();
     let fixed = encode_fixed_huffman_packed_with_capacity(&tokens, est_bytes);
+    let fixed_time = t1.elapsed();
+
+    let t2 = Instant::now();
     let dynamic = encode_dynamic_huffman_packed_with_capacity(&tokens, est_bytes);
-    if dynamic.len() < fixed.len() {
-        dynamic
-    } else {
-        fixed
+    let dynamic_time = t2.elapsed();
+
+    let choose_start = Instant::now();
+    let use_dynamic = dynamic.len() < fixed.len();
+    let encoded = if use_dynamic { dynamic } else { fixed };
+    let choose_time = choose_start.elapsed();
+
+    let stats = DeflateStats {
+        lz77_time,
+        fixed_huffman_time: fixed_time,
+        dynamic_huffman_time: dynamic_time,
+        choose_time,
+        token_count: tokens.len(),
+        literal_count,
+        match_count,
+        used_dynamic: use_dynamic,
+        used_stored_block: false,
+    };
+
+    (encoded, stats)
+}
+
+fn token_counts_packed(tokens: &[PackedToken]) -> (usize, usize) {
+    let mut literal_count = 0;
+    let mut match_count = 0;
+    for t in tokens {
+        if t.is_literal() {
+            literal_count += 1;
+        } else {
+            match_count += 1;
+        }
     }
+    (literal_count, match_count)
 }
 
 /// Reusable DEFLATE encoder that minimizes allocations by reusing buffers.
@@ -254,6 +406,12 @@ impl Deflater {
         }
     }
 
+    /// Return the compression level configured for this deflater.
+    #[inline]
+    pub fn level(&self) -> u8 {
+        self.level
+    }
+
     /// Compress raw data into a DEFLATE stream.
     pub fn compress(&mut self, data: &[u8]) -> Vec<u8> {
         if data.is_empty() {
@@ -274,13 +432,31 @@ impl Deflater {
         self.lz77.compress_into(data, &mut self.tokens);
 
         let est_bytes = estimated_deflate_size(data.len(), self.level);
-        let fixed = encode_fixed_huffman_with_capacity(&self.tokens, est_bytes);
-        let dynamic = encode_dynamic_huffman_with_capacity(&self.tokens, est_bytes);
-        if dynamic.len() < fixed.len() {
-            dynamic
-        } else {
-            fixed
+        let (encoded, _) = encode_best_huffman(&self.tokens, est_bytes);
+        encoded
+    }
+
+    /// Compress using only fixed Huffman codes (for very small inputs).
+    pub fn compress_fixed_only(&mut self, data: &[u8]) -> Vec<u8> {
+        if data.is_empty() {
+            let mut writer = BitWriter64::with_capacity(16);
+            writer.write_bits(1, 1); // BFINAL = 1
+            writer.write_bits(1, 2); // BTYPE = 01 (fixed Huffman)
+
+            // Write end-of-block symbol (256)
+            let lit_codes = huffman::fixed_literal_codes();
+            let code = lit_codes[256];
+            writer.write_bits(reverse_bits(code.code, code.length), code.length);
+
+            return writer.finish();
         }
+
+        self.tokens.clear();
+        self.tokens.reserve(data.len());
+        self.lz77.compress_into(data, &mut self.tokens);
+
+        let est_bytes = estimated_deflate_size(data.len(), self.level);
+        encode_fixed_huffman_with_capacity(&self.tokens, est_bytes)
     }
 
     /// Compress data and wrap in a zlib container.
@@ -306,15 +482,7 @@ impl Deflater {
         self.lz77.compress_into(data, &mut self.tokens);
 
         let est_bytes = estimated_deflate_size(data.len(), self.level);
-        let deflated = {
-            let fixed = encode_fixed_huffman_with_capacity(&self.tokens, est_bytes);
-            let dynamic = encode_dynamic_huffman_with_capacity(&self.tokens, est_bytes);
-            if dynamic.len() < fixed.len() {
-                dynamic
-            } else {
-                fixed
-            }
-        };
+        let (deflated, _) = encode_best_huffman(&self.tokens, est_bytes);
 
         let use_stored = should_use_stored(data.len(), deflated.len());
 
@@ -350,14 +518,36 @@ impl Deflater {
         self.lz77
             .compress_packed_into(data, &mut self.packed_tokens);
 
-        let est_bytes = estimated_deflate_size(data.len(), self.level);
-        let fixed = encode_fixed_huffman_packed_with_capacity(&self.packed_tokens, est_bytes);
-        let dynamic = encode_dynamic_huffman_packed_with_capacity(&self.packed_tokens, est_bytes);
-        if dynamic.len() < fixed.len() {
-            dynamic
-        } else {
-            fixed
+        let (_literal_count, match_count) = token_counts_packed(&self.packed_tokens);
+
+        if match_count == 0 && data.len() >= STORED_LITERAL_ONLY_BYTES {
+            return deflate_stored(data);
         }
+
+        let est_bytes = estimated_deflate_size(data.len(), self.level);
+        let (encoded, _) = encode_best_huffman_packed(&self.packed_tokens, est_bytes);
+        encoded
+    }
+
+    /// Compress using only fixed Huffman codes (packed) for very small inputs.
+    pub fn compress_fixed_only_packed(&mut self, data: &[u8]) -> Vec<u8> {
+        if data.is_empty() {
+            let mut writer = BitWriter64::with_capacity(16);
+            writer.write_bits(1, 1); // BFINAL = 1
+            writer.write_bits(1, 2); // BTYPE = 01 (fixed Huffman)
+
+            let (code, len) = fixed_literal_codes_rev()[256];
+            writer.write_bits(code, len);
+            return writer.finish();
+        }
+
+        self.packed_tokens.clear();
+        self.packed_tokens.reserve(data.len());
+        self.lz77
+            .compress_packed_into(data, &mut self.packed_tokens);
+
+        let est_bytes = estimated_deflate_size(data.len(), self.level);
+        encode_fixed_huffman_packed_with_capacity(&self.packed_tokens, est_bytes)
     }
 
     /// Compress data using packed tokens and wrap in a zlib container.
@@ -383,16 +573,19 @@ impl Deflater {
         self.lz77
             .compress_packed_into(data, &mut self.packed_tokens);
 
+        let (_literal_count, match_count) = token_counts_packed(&self.packed_tokens);
+
+        if match_count == 0 && data.len() >= STORED_LITERAL_ONLY_BYTES {
+            let stored_blocks = deflate_stored(data);
+            let mut output = Vec::with_capacity(stored_blocks.len().min(data.len()) + 32);
+            output.extend_from_slice(&zlib_header(self.level));
+            output.extend_from_slice(&stored_blocks);
+            output.extend_from_slice(&adler32(data).to_be_bytes());
+            return output;
+        }
+
         let est_bytes = estimated_deflate_size(data.len(), self.level);
-        let deflated = {
-            let fixed = encode_fixed_huffman_packed_with_capacity(&self.packed_tokens, est_bytes);
-            let dynamic = encode_dynamic_huffman_packed_with_capacity(&self.packed_tokens, est_bytes);
-            if dynamic.len() < fixed.len() {
-                dynamic
-            } else {
-                fixed
-            }
-        };
+        let (deflated, _) = encode_best_huffman_packed(&self.packed_tokens, est_bytes);
 
         let use_stored = should_use_stored(data.len(), deflated.len());
 
@@ -447,19 +640,30 @@ pub fn deflate_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
     let t1 = Instant::now();
     let est_bytes = estimated_deflate_size(data.len(), level);
 
-    let fixed = encode_fixed_huffman_with_capacity(&tokens, est_bytes);
-    let fixed_time = t1.elapsed();
+    let (encoded, fixed_time, dynamic_time, choose_time, use_dynamic) =
+        if tokens.len() >= DYNAMIC_ONLY_TOKEN_THRESHOLD {
+            // Skip fixed encode for large inputs to avoid double work.
+            let t_dyn_start = Instant::now();
+            let dynamic = encode_dynamic_huffman_with_capacity(&tokens, est_bytes);
+            let dynamic_time = t_dyn_start.elapsed();
+            (dynamic, Duration::ZERO, dynamic_time, Duration::ZERO, true)
+        } else {
+            let fixed = encode_fixed_huffman_with_capacity(&tokens, est_bytes);
+            let fixed_time = t1.elapsed();
 
-    // Dynamic Huffman encode
-    let t2 = Instant::now();
-    let dynamic = encode_dynamic_huffman_with_capacity(&tokens, est_bytes);
-    let dynamic_time = t2.elapsed();
+            // Dynamic Huffman encode
+            let t2 = Instant::now();
+            let dynamic = encode_dynamic_huffman_with_capacity(&tokens, est_bytes);
+            let dynamic_time = t2.elapsed();
 
-    // Choose smaller stream
-    let choose_start = Instant::now();
-    let use_dynamic = dynamic.len() < fixed.len();
-    let encoded = if use_dynamic { dynamic } else { fixed };
-    let choose_time = choose_start.elapsed();
+            // Choose smaller stream
+            let choose_start = Instant::now();
+            let use_dynamic = dynamic.len() < fixed.len();
+            let encoded = if use_dynamic { dynamic } else { fixed };
+            let choose_time = choose_start.elapsed();
+
+            (encoded, fixed_time, dynamic_time, choose_time, use_dynamic)
+        };
 
     let stats = DeflateStats {
         lz77_time,
@@ -480,58 +684,26 @@ pub fn deflate_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
 ///
 /// Produces: zlib header (CMF/FLG), deflate stream, Adler-32 checksum.
 pub fn deflate_zlib(data: &[u8], level: u8) -> Vec<u8> {
-    // For empty input, keep the fixed-Huffman minimal block.
-    if data.is_empty() {
-        let mut output = Vec::with_capacity(8);
-        output.extend_from_slice(&zlib_header(level));
-        output.extend_from_slice(&deflate(data, level));
-        output.extend_from_slice(&adler32(data).to_be_bytes());
-        return output;
+    if data.len() >= HIGH_ENTROPY_BAIL_BYTES && is_high_entropy_data(data) {
+        return deflate_zlib_stored(data, level);
     }
-
-    let deflated = deflate(data, level);
-
-    let use_stored = should_use_stored(data.len(), deflated.len());
-
-    let mut output = Vec::with_capacity(deflated.len().min(data.len()) + 32);
-    output.extend_from_slice(&zlib_header(level));
-
-    if use_stored {
-        let stored_blocks = deflate_stored(data);
-        output.extend_from_slice(&stored_blocks);
-    } else {
-        output.extend_from_slice(&deflated);
-    }
-
-    output.extend_from_slice(&adler32(data).to_be_bytes());
-    output
+    with_reusable_deflater(level, |d| d.compress_zlib(data))
 }
 
 /// Compress data with packed tokens and wrap it in a zlib container.
 pub fn deflate_zlib_packed(data: &[u8], level: u8) -> Vec<u8> {
-    // For empty input, keep the fixed-Huffman minimal block.
-    if data.is_empty() {
-        let mut output = Vec::with_capacity(8);
-        output.extend_from_slice(&zlib_header(level));
-        output.extend_from_slice(&deflate_packed(data, level));
-        output.extend_from_slice(&adler32(data).to_be_bytes());
-        return output;
+    if data.len() >= HIGH_ENTROPY_BAIL_BYTES && is_high_entropy_data(data) {
+        return deflate_zlib_stored(data, level);
     }
+    with_reusable_deflater(level, |d| d.compress_packed_zlib(data))
+}
 
-    let deflated = deflate_packed(data, level);
-
-    let use_stored = should_use_stored(data.len(), deflated.len());
-
-    let mut output = Vec::with_capacity(deflated.len().min(data.len()) + 32);
+/// Emit zlib wrapper with stored (uncompressed) DEFLATE blocks.
+fn deflate_zlib_stored(data: &[u8], level: u8) -> Vec<u8> {
+    let mut output = Vec::with_capacity(data.len() + 16);
     output.extend_from_slice(&zlib_header(level));
-
-    if use_stored {
-        let stored_blocks = deflate_stored(data);
-        output.extend_from_slice(&stored_blocks);
-    } else {
-        output.extend_from_slice(&deflated);
-    }
-
+    let stored_blocks = deflate_stored(data);
+    output.extend_from_slice(&stored_blocks);
     output.extend_from_slice(&adler32(data).to_be_bytes());
     output
 }
@@ -550,7 +722,67 @@ pub fn deflate_zlib_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats
         return (output, stats);
     }
 
+    // High-entropy fast path: skip LZ77/Huffman and emit stored blocks directly.
+    if data.len() >= HIGH_ENTROPY_BAIL_BYTES && is_high_entropy_data(data) {
+        let mut output = Vec::with_capacity(data.len() + 16);
+        output.extend_from_slice(&zlib_header(level));
+        let stored_blocks = deflate_stored(data);
+        output.extend_from_slice(&stored_blocks);
+        output.extend_from_slice(&adler32(data).to_be_bytes());
+        let stats = DeflateStats {
+            used_stored_block: true,
+            ..Default::default()
+        };
+        return (output, stats);
+    }
+
     let (deflated, mut stats) = deflate_with_stats(data, level);
+
+    let use_stored = should_use_stored(data.len(), deflated.len());
+    let mut output = Vec::with_capacity(deflated.len().min(data.len()) + 32);
+    output.extend_from_slice(&zlib_header(level));
+
+    if use_stored {
+        let stored_blocks = deflate_stored(data);
+        output.extend_from_slice(&stored_blocks);
+    } else {
+        output.extend_from_slice(&deflated);
+    }
+
+    output.extend_from_slice(&adler32(data).to_be_bytes());
+
+    stats.used_stored_block = use_stored;
+    (output, stats)
+}
+
+/// Compress data with packed tokens into a zlib container, returning stats.
+#[cfg(feature = "timing")]
+pub fn deflate_zlib_packed_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
+    if data.is_empty() {
+        let mut output = Vec::with_capacity(8);
+        output.extend_from_slice(&zlib_header(level));
+
+        let (deflated, mut stats) = deflate_packed_with_stats(data, level);
+        output.extend_from_slice(&deflated);
+        output.extend_from_slice(&adler32(data).to_be_bytes());
+        stats.used_stored_block = false;
+        return (output, stats);
+    }
+
+    if data.len() >= HIGH_ENTROPY_BAIL_BYTES && is_high_entropy_data(data) {
+        let mut output = Vec::with_capacity(data.len() + 16);
+        output.extend_from_slice(&zlib_header(level));
+        let stored_blocks = deflate_stored(data);
+        output.extend_from_slice(&stored_blocks);
+        output.extend_from_slice(&adler32(data).to_be_bytes());
+        let stats = DeflateStats {
+            used_stored_block: true,
+            ..Default::default()
+        };
+        return (output, stats);
+    }
+
+    let (deflated, mut stats) = deflate_packed_with_stats(data, level);
 
     let use_stored = should_use_stored(data.len(), deflated.len());
     let mut output = Vec::with_capacity(deflated.len().min(data.len()) + 32);
@@ -576,6 +808,33 @@ fn should_use_stored(data_len: usize, deflated_len: usize) -> bool {
     let stored_total = data_len + stored_overhead + 2 /*zlib hdr*/ + 4 /*adler*/;
     let deflated_total = deflated_len + 2 /*zlib hdr*/ + 4 /*adler*/;
     deflated_total >= stored_total
+}
+
+/// Detect high-entropy (likely incompressible) data by sampling neighboring deltas.
+/// Similar to the PNG filter heuristic: few equal neighbors and no dominant delta.
+fn is_high_entropy_data(data: &[u8]) -> bool {
+    if data.len() < 1024 {
+        return false;
+    }
+    let mut equal_neighbors = 0usize;
+    let mut delta_hist = [0u32; 256];
+    let mut total_deltas = 0usize;
+    for w in data.windows(2) {
+        if w[0] == w[1] {
+            equal_neighbors += 1;
+        }
+        let delta = w[1].wrapping_sub(w[0]);
+        delta_hist[delta as usize] += 1;
+        total_deltas += 1;
+    }
+    let ratio = equal_neighbors as f32 / (data.len().saturating_sub(1) as f32);
+    let max_delta = delta_hist.iter().copied().max().unwrap_or(0);
+    let max_delta_ratio = if total_deltas == 0 {
+        1.0
+    } else {
+        max_delta as f32 / total_deltas as f32
+    };
+    ratio < 0.01 && max_delta_ratio < 0.10
 }
 
 /// Encode tokens using fixed Huffman codes.

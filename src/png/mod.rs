@@ -7,6 +7,8 @@ pub mod filter;
 
 use crate::color::ColorType;
 use crate::compress::deflate::deflate_zlib_packed;
+#[cfg(feature = "timing")]
+use crate::compress::deflate::{deflate_zlib_packed_with_stats, DeflateStats};
 use crate::error::{Error, Result};
 
 /// PNG file signature (magic bytes).
@@ -27,8 +29,36 @@ pub struct PngOptions {
 impl Default for PngOptions {
     fn default() -> Self {
         Self {
+            // Prefer speed; level 2 favors throughput over ratio.
+            compression_level: 2,
+            // AdaptiveFast reduces per-row work with minimal compression impact.
+            filter_strategy: FilterStrategy::AdaptiveFast,
+        }
+    }
+}
+
+impl PngOptions {
+    /// Speed-focused preset (matches current default).
+    pub fn fast() -> Self {
+        Self {
+            compression_level: 2,
+            filter_strategy: FilterStrategy::AdaptiveFast,
+        }
+    }
+
+    /// Balanced preset targeting better compression at moderate speed.
+    pub fn balanced() -> Self {
+        Self {
             compression_level: 6,
             filter_strategy: FilterStrategy::Adaptive,
+        }
+    }
+
+    /// Highest compression preset; slowest.
+    pub fn max_compression() -> Self {
+        Self {
+            compression_level: 9,
+            filter_strategy: FilterStrategy::AdaptiveSampled { interval: 2 },
         }
     }
 }
@@ -158,6 +188,57 @@ pub fn encode_into(
     Ok(())
 }
 
+/// Encode raw pixel data as PNG into a caller-provided buffer, returning DEFLATE timing stats.
+///
+/// Only available when the `timing` feature is enabled. This mirrors `encode_into`
+/// but surfaces per-stage DEFLATE timings to aid profiling without external tools.
+#[cfg(feature = "timing")]
+pub fn encode_into_with_stats(
+    output: &mut Vec<u8>,
+    data: &[u8],
+    width: u32,
+    height: u32,
+    color_type: ColorType,
+    options: &PngOptions,
+) -> Result<DeflateStats> {
+    if !(1..=9).contains(&options.compression_level) {
+        return Err(Error::InvalidCompressionLevel(options.compression_level));
+    }
+
+    if width == 0 || height == 0 {
+        return Err(Error::InvalidDimensions { width, height });
+    }
+
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::ImageTooLarge {
+            width,
+            height,
+            max: MAX_DIMENSION,
+        });
+    }
+
+    let bytes_per_pixel = color_type.bytes_per_pixel();
+    let expected_len = width as usize * height as usize * bytes_per_pixel;
+    if data.len() != expected_len {
+        return Err(Error::InvalidDataLength {
+            expected: expected_len,
+            actual: data.len(),
+        });
+    }
+
+    output.clear();
+    output.reserve(expected_len / 2 + 1024);
+    output.extend_from_slice(&PNG_SIGNATURE);
+    write_ihdr(output, width, height, color_type);
+
+    let filtered = filter::apply_filters(data, width, height, bytes_per_pixel, options);
+    let (compressed, stats) = deflate_zlib_packed_with_stats(&filtered, options.compression_level);
+    write_idat_chunks(output, &compressed);
+    write_iend(output);
+
+    Ok(stats)
+}
+
 /// Write IHDR (image header) chunk.
 fn write_ihdr(output: &mut Vec<u8>, width: u32, height: u32, color_type: ColorType) {
     let mut ihdr_data = Vec::with_capacity(13);
@@ -188,8 +269,8 @@ fn write_ihdr(output: &mut Vec<u8>, width: u32, height: u32, color_type: ColorTy
 
 /// Write IDAT (image data) chunks.
 fn write_idat_chunks(output: &mut Vec<u8>, compressed: &[u8]) {
-    // Write in moderately large chunks to reduce per-chunk overhead (CRC/length)
-    const CHUNK_SIZE: usize = 32 * 1024;
+    // Write in larger chunks to reduce per-chunk overhead (CRC/length)
+    const CHUNK_SIZE: usize = 256 * 1024;
 
     for chunk_data in compressed.chunks(CHUNK_SIZE) {
         chunk::write_chunk(output, b"IDAT", chunk_data);

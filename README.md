@@ -267,9 +267,19 @@ Note: tests and benches are validated on nightly toolchain; ensure `rustup overr
 ## Optional Features
 
 - `cli` - Build the command-line interface (adds `clap`, `png`, `jpeg-decoder`)
-- `simd` - Enable SIMD optimizations (requires nightly for some platforms)
-- `parallel` - Enable parallel processing with rayon
+- `simd` *(default)* - Enable SIMD optimizations with runtime feature detection (falls back to scalar paths when unavailable)
+- `parallel` *(default)* - Enable parallel processing with rayon
 
+### Performance defaults (PNG)
+- Default compression level: **2** (favor speed)
+- Default filter strategy: **AdaptiveFast**, with height-aware sampling on tall images
+- SIMD + parallel enabled by default
+- Small inputs: prefer fixed Huffman (token thresholds tuned to avoid double encoding)
+
+Presets:
+- `PngOptions::fast()` — level 2, AdaptiveFast (default)
+- `PngOptions::balanced()` — level 6, Adaptive
+- `PngOptions::max_compression()` — level 9, AdaptiveSampled(interval=2)
 ## Performance Notes
 
 - PNG compression uses adaptive filter selection for best compression
