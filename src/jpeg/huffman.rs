@@ -3,6 +3,7 @@
 //! Implements the entropy coding stage of JPEG compression.
 
 use crate::bits::BitWriterMsb;
+use crate::compress;
 use crate::jpeg::quantize::zigzag_reorder;
 
 /// Standard DC luminance Huffman table (number of codes per bit length).
@@ -110,6 +111,51 @@ impl HuffmanTables {
         }
     }
 
+    /// Build optimized tables from per-image symbol frequencies.
+    pub fn from_frequencies(
+        dc_lum_freq: &[u32; 12],
+        dc_chrom_freq: &[u32; 12],
+        ac_lum_freq: &[u32; 256],
+        ac_chrom_freq: &[u32; 256],
+    ) -> Self {
+        let (dc_lum_bits, dc_lum_vals, dc_lum_codes) = build_jpeg_table(dc_lum_freq, true);
+        let (dc_chrom_bits, dc_chrom_vals, dc_chrom_codes) = build_jpeg_table(dc_chrom_freq, true);
+        let (ac_lum_bits, ac_lum_vals, ac_lum_codes) = build_jpeg_table(ac_lum_freq, false);
+        let (ac_chrom_bits, ac_chrom_vals, ac_chrom_codes) = build_jpeg_table(ac_chrom_freq, false);
+
+        let mut dc_lum_codes_arr = [HuffCode::default(); 12];
+        for (i, c) in dc_lum_codes.into_iter().enumerate().take(12) {
+            dc_lum_codes_arr[i] = c;
+        }
+        let mut dc_chrom_codes_arr = [HuffCode::default(); 12];
+        for (i, c) in dc_chrom_codes.into_iter().enumerate().take(12) {
+            dc_chrom_codes_arr[i] = c;
+        }
+        let mut ac_lum_codes_arr = [HuffCode::default(); 256];
+        for (i, c) in ac_lum_codes.into_iter().enumerate().take(256) {
+            ac_lum_codes_arr[i] = c;
+        }
+        let mut ac_chrom_codes_arr = [HuffCode::default(); 256];
+        for (i, c) in ac_chrom_codes.into_iter().enumerate().take(256) {
+            ac_chrom_codes_arr[i] = c;
+        }
+
+        Self {
+            dc_lum_bits,
+            dc_lum_vals,
+            dc_chrom_bits,
+            dc_chrom_vals,
+            ac_lum_bits,
+            ac_lum_vals,
+            ac_chrom_bits,
+            ac_chrom_vals,
+            dc_lum_codes: dc_lum_codes_arr,
+            dc_chrom_codes: dc_chrom_codes_arr,
+            ac_lum_codes: ac_lum_codes_arr,
+            ac_chrom_codes: ac_chrom_codes_arr,
+        }
+    }
+
     /// Get DC code for a category.
     fn get_dc_code(&self, category: u8, is_luminance: bool) -> HuffCode {
         if is_luminance {
@@ -185,8 +231,61 @@ fn build_codes_256(bits: &[u8; 16], vals: &[u8]) -> [HuffCode; 256] {
     codes
 }
 
+fn build_jpeg_table(freqs: &[u32], is_dc: bool) -> ([u8; 16], Vec<u8>, Vec<HuffCode>) {
+    // Build canonical codes from frequencies with max length 16 (JPEG limit).
+    let raw_codes = compress::huffman::build_codes(freqs, 16);
+
+    // bits[len-1] = count of symbols with that length
+    let mut bits = [0u8; 16];
+    for c in &raw_codes {
+        if c.length > 0 {
+            bits[(c.length - 1) as usize] += 1;
+        }
+    }
+
+    // vals: symbols ordered by increasing length then symbol value
+    let mut vals = Vec::new();
+    for len in 1..=16 {
+        for (sym, c) in raw_codes.iter().enumerate() {
+            if c.length == len as u8 {
+                vals.push(sym as u8);
+            }
+        }
+    }
+
+    // Map to HuffCode
+    let mut codes = Vec::with_capacity(raw_codes.len());
+    for rc in raw_codes {
+        codes.push(HuffCode {
+            code: rc.code,
+            length: rc.length,
+        });
+    }
+
+    // Ensure at least one symbol exists
+    if vals.is_empty() {
+        if is_dc {
+            bits[0] = 1;
+            vals.push(0);
+            codes.get_mut(0).map(|c| {
+                c.code = 0;
+                c.length = 1;
+            });
+        } else {
+            bits[0] = 1;
+            vals.push(0x00);
+            codes.get_mut(0).map(|c| {
+                c.code = 0;
+                c.length = 1;
+            });
+        }
+    }
+
+    (bits, vals, codes)
+}
+
 /// Get the category (number of bits needed) for a value.
-fn category(value: i16) -> u8 {
+pub(crate) fn category(value: i16) -> u8 {
     let abs_val = value.unsigned_abs();
     if abs_val == 0 {
         0

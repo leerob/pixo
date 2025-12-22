@@ -11,8 +11,8 @@ use crate::color::{rgb_to_ycbcr, ColorType};
 use crate::error::{Error, Result};
 
 use dct::dct_2d;
-use huffman::{encode_block, HuffmanTables};
-use quantize::{quantize_block, QuantizationTables};
+use huffman::{category, encode_block, HuffmanTables};
+use quantize::{quantize_block, zigzag_reorder, QuantizationTables};
 
 /// Maximum supported image dimension for JPEG.
 const MAX_DIMENSION: u32 = 65535;
@@ -41,6 +41,7 @@ pub fn encode(data: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u
         quality,
         subsampling: Subsampling::S444,
         restart_interval: None,
+        optimize_huffman: false,
     };
     let mut output = Vec::new();
     encode_with_options_into(
@@ -67,6 +68,7 @@ pub fn encode_with_color(
         quality,
         subsampling: Subsampling::S444,
         restart_interval: None,
+        optimize_huffman: false,
     };
     let mut output = Vec::new();
     encode_with_options_into(
@@ -99,6 +101,9 @@ pub struct JpegOptions {
     pub subsampling: Subsampling,
     /// Restart interval in MCUs (None = disabled).
     pub restart_interval: Option<u16>,
+    /// Optimize Huffman tables per image (two-pass encode). Improves size, slight
+    /// extra work.
+    pub optimize_huffman: bool,
 }
 
 impl Default for JpegOptions {
@@ -107,6 +112,7 @@ impl Default for JpegOptions {
             quality: 75,
             subsampling: Subsampling::S444,
             restart_interval: None,
+            optimize_huffman: false,
         }
     }
 }
@@ -118,6 +124,7 @@ impl JpegOptions {
             quality: 75,
             subsampling: Subsampling::S420,
             restart_interval: None,
+            optimize_huffman: false,
         }
     }
 
@@ -127,6 +134,7 @@ impl JpegOptions {
             quality: 90,
             subsampling: Subsampling::S444,
             restart_interval: None,
+            optimize_huffman: true,
         }
     }
 }
@@ -206,9 +214,23 @@ pub fn encode_with_options_into(
     output.clear();
     output.reserve(expected_len / 4);
 
-    // Create quantization and Huffman tables
+    // Create quantization tables
     let quant_tables = QuantizationTables::with_quality(options.quality);
-    let huff_tables = HuffmanTables::default();
+
+    // Optional optimized Huffman tables (two-pass)
+    let huff_tables = if options.optimize_huffman {
+        let (dc_lum_freq, dc_chrom_freq, ac_lum_freq, ac_chrom_freq) = collect_huffman_frequencies(
+            data,
+            width,
+            height,
+            color_type,
+            options.subsampling,
+            &quant_tables,
+        );
+        HuffmanTables::from_frequencies(&dc_lum_freq, &dc_chrom_freq, &ac_lum_freq, &ac_chrom_freq)
+    } else {
+        HuffmanTables::default()
+    };
 
     // Write JPEG headers
     write_soi(output);
@@ -575,6 +597,155 @@ fn encode_scan(
     output.extend_from_slice(&writer.finish());
 }
 
+/// Accumulate Huffman symbol frequencies for a quantized block and return new DC predictor.
+fn accumulate_huffman_freqs(
+    block: &[i16; 64],
+    prev_dc: i16,
+    _is_luminance: bool,
+    dc_freq: &mut [u32; 12],
+    ac_freq: &mut [u32; 256],
+) -> i16 {
+    let zigzag = zigzag_reorder(block);
+
+    // DC
+    let dc = zigzag[0];
+    let dc_diff = dc - prev_dc;
+    let dc_cat = category(dc_diff);
+    dc_freq[dc_cat as usize] += 1;
+
+    // AC
+    let mut zero_run = 0;
+    for &ac in zigzag.iter().skip(1) {
+        if ac == 0 {
+            zero_run += 1;
+        } else {
+            while zero_run >= 16 {
+                ac_freq[0xF0] += 1; // ZRL
+                zero_run -= 16;
+            }
+            let ac_cat = category(ac);
+            let rs = ((zero_run as u8) << 4) | ac_cat;
+            ac_freq[rs as usize] += 1;
+            zero_run = 0;
+        }
+    }
+
+    if zero_run > 0 {
+        ac_freq[0x00] += 1; // EOB
+    }
+
+    dc
+}
+
+/// Collect per-image Huffman symbol frequencies to build optimized tables.
+fn collect_huffman_frequencies(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    color_type: ColorType,
+    subsampling: Subsampling,
+    quant_tables: &QuantizationTables,
+) -> ([u32; 12], [u32; 12], [u32; 256], [u32; 256]) {
+    let width = width as usize;
+    let height = height as usize;
+    let mut dc_lum = [0u32; 12];
+    let mut dc_chrom = [0u32; 12];
+    let mut ac_lum = [0u32; 256];
+    let mut ac_chrom = [0u32; 256];
+
+    match (color_type, subsampling) {
+        (ColorType::Gray, _) => {
+            let (padded_width, padded_height) = ((width + 7) & !7, (height + 7) & !7);
+            let mut prev_dc_y = 0i16;
+            for block_y in (0..padded_height).step_by(8) {
+                for block_x in (0..padded_width).step_by(8) {
+                    let (y_block, _, _) =
+                        extract_block(data, width, height, block_x, block_y, color_type);
+                    let y_dct = dct_2d(&y_block);
+                    let y_quant = quantize_block(&y_dct, &quant_tables.luminance_table);
+                    prev_dc_y = accumulate_huffman_freqs(&y_quant, prev_dc_y, true, &mut dc_lum, &mut ac_lum);
+                }
+            }
+        }
+        (_, Subsampling::S444) => {
+            let (padded_width, padded_height) = ((width + 7) & !7, (height + 7) & !7);
+            let mut prev_dc_y = 0i16;
+            let mut prev_dc_cb = 0i16;
+            let mut prev_dc_cr = 0i16;
+            for block_y in (0..padded_height).step_by(8) {
+                for block_x in (0..padded_width).step_by(8) {
+                    let (y_block, cb_block, cr_block) =
+                        extract_block(data, width, height, block_x, block_y, color_type);
+                    let y_dct = dct_2d(&y_block);
+                    let y_quant = quantize_block(&y_dct, &quant_tables.luminance_table);
+                    prev_dc_y = accumulate_huffman_freqs(&y_quant, prev_dc_y, true, &mut dc_lum, &mut ac_lum);
+
+                    let cb_dct = dct_2d(&cb_block);
+                    let cb_quant = quantize_block(&cb_dct, &quant_tables.chrominance_table);
+                    prev_dc_cb = accumulate_huffman_freqs(&cb_quant, prev_dc_cb, false, &mut dc_chrom, &mut ac_chrom);
+
+                    let cr_dct = dct_2d(&cr_block);
+                    let cr_quant = quantize_block(&cr_dct, &quant_tables.chrominance_table);
+                    prev_dc_cr = accumulate_huffman_freqs(&cr_quant, prev_dc_cr, false, &mut dc_chrom, &mut ac_chrom);
+                }
+            }
+        }
+        (_, Subsampling::S420) => {
+            let padded_width_420 = (width + 15) & !15;
+            let padded_height_420 = (height + 15) & !15;
+            let mut prev_dc_y = 0i16;
+            let mut prev_dc_cb = 0i16;
+            let mut prev_dc_cr = 0i16;
+
+            for mcu_y in (0..padded_height_420).step_by(16) {
+                for mcu_x in (0..padded_width_420).step_by(16) {
+                    let (y_blocks, cb_block, cr_block) =
+                        extract_mcu_420(data, width, height, mcu_x, mcu_y);
+
+                    for y_block in &y_blocks {
+                        let y_dct = dct_2d(y_block);
+                        let y_quant = quantize_block(&y_dct, &quant_tables.luminance_table);
+                        prev_dc_y =
+                            accumulate_huffman_freqs(&y_quant, prev_dc_y, true, &mut dc_lum, &mut ac_lum);
+                    }
+
+                    let cb_dct = dct_2d(&cb_block);
+                    let cb_quant = quantize_block(&cb_dct, &quant_tables.chrominance_table);
+                    prev_dc_cb =
+                        accumulate_huffman_freqs(&cb_quant, prev_dc_cb, false, &mut dc_chrom, &mut ac_chrom);
+
+                    let cr_dct = dct_2d(&cr_block);
+                    let cr_quant = quantize_block(&cr_dct, &quant_tables.chrominance_table);
+                    prev_dc_cr =
+                        accumulate_huffman_freqs(&cr_quant, prev_dc_cr, false, &mut dc_chrom, &mut ac_chrom);
+                }
+            }
+        }
+    }
+
+    ensure_dc_minimum(&mut dc_lum);
+    ensure_dc_minimum(&mut dc_chrom);
+    ensure_ac_minimum(&mut ac_lum);
+    ensure_ac_minimum(&mut ac_chrom);
+
+    (dc_lum, dc_chrom, ac_lum, ac_chrom)
+}
+
+fn ensure_dc_minimum(freq: &mut [u32; 12]) {
+    if freq.iter().all(|&f| f == 0) {
+        freq[0] = 1;
+    }
+}
+
+fn ensure_ac_minimum(freq: &mut [u32; 256]) {
+    if freq[0] == 0 {
+        freq[0] = 1; // EOB
+    }
+    if freq[0xF0] == 0 {
+        freq[0xF0] = 1; // ZRL
+    }
+}
+
 /// Extract an 8x8 block from the image and convert to YCbCr.
 fn extract_block(
     data: &[u8],
@@ -707,11 +878,13 @@ mod tests {
             quality: 85,
             subsampling: Subsampling::S444,
             restart_interval: None,
+            optimize_huffman: false,
         };
         let opts_420 = JpegOptions {
             quality: 85,
             subsampling: Subsampling::S420,
             restart_interval: None,
+            optimize_huffman: false,
         };
 
         let mut buf_444 = Vec::new();
@@ -753,11 +926,13 @@ mod tests {
             quality: 85,
             subsampling: Subsampling::S444,
             restart_interval: None,
+            optimize_huffman: false,
         };
         let opts_420 = JpegOptions {
             quality: 85,
             subsampling: Subsampling::S420,
             restart_interval: None,
+            optimize_huffman: false,
         };
 
         let mut buf_444 = Vec::new();
@@ -807,10 +982,12 @@ mod tests {
         let fast = JpegOptions::fast();
         assert_eq!(fast.quality, 75);
         assert_eq!(fast.subsampling, Subsampling::S420);
+        assert!(!fast.optimize_huffman);
 
         let max = JpegOptions::max_quality();
         assert_eq!(max.quality, 90);
         assert_eq!(max.subsampling, Subsampling::S444);
+        assert!(max.optimize_huffman);
     }
 
     #[test]
@@ -865,6 +1042,7 @@ mod tests {
             quality: 85,
             subsampling: Subsampling::S444,
             restart_interval: None,
+            optimize_huffman: false,
         };
 
         encode_with_options_into(&mut output, &pixels1, 1, 1, 85, ColorType::Rgb, &opts).unwrap();
