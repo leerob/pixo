@@ -190,8 +190,8 @@ fn write_ihdr(output: &mut Vec<u8>, width: u32, height: u32, color_type: ColorTy
 
 /// Write IDAT (image data) chunks.
 fn write_idat_chunks(output: &mut Vec<u8>, compressed: &[u8]) {
-    // Write in moderately large chunks to reduce per-chunk overhead (CRC/length)
-    const CHUNK_SIZE: usize = 32 * 1024;
+    // Write in larger chunks to reduce per-chunk overhead (CRC/length)
+    const CHUNK_SIZE: usize = 64 * 1024;
 
     for chunk_data in compressed.chunks(CHUNK_SIZE) {
         chunk::write_chunk(output, b"IDAT", chunk_data);
