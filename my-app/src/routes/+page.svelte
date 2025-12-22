@@ -88,9 +88,6 @@
 	$: totalSavingsPct =
 		totalOriginal > 0 ? ((totalOriginal - totalCompressed) / totalOriginal) * 100 : 0;
 
-	const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
-	const ctx = canvas ? canvas.getContext('2d', { willReadFrequently: true }) : null;
-
 	function formatBytes(bytes: number) {
 		if (!bytes) return '0 B';
 		const units = ['B', 'KB', 'MB', 'GB'];
@@ -166,7 +163,9 @@ function detectAlpha(data: Uint8ClampedArray) {
 	}
 
 	async function decodeFile(file: File) {
-		if (!canvas || !ctx) throw new Error('Canvas not available in this environment.');
+		const canvas = document.createElement('canvas');
+		const ctx = canvas.getContext('2d', { willReadFrequently: true });
+		if (!ctx) throw new Error('Canvas context not available.');
 		const bitmap = await createImageBitmap(file);
 		canvas.width = bitmap.width;
 		canvas.height = bitmap.height;
@@ -190,8 +189,16 @@ function detectAlpha(data: Uint8ClampedArray) {
 		if (rejected.length) {
 			addNotice(`Unsupported files skipped: ${rejected.map((f) => f.name).join(', ')}`, 'warning');
 		}
+		const failed: string[] = [];
 		for (const file of supported) {
-			const { imageData, width, height, hasAlpha } = await decodeFile(file);
+			let decoded;
+			try {
+				decoded = await decodeFile(file);
+			} catch {
+				failed.push(file.name);
+				continue;
+			}
+			const { imageData, width, height, hasAlpha } = decoded;
 			const url = URL.createObjectURL(file);
 			const id = crypto.randomUUID();
 			const initialOptions = deriveOptionsFromType(file.type);
@@ -212,6 +219,9 @@ function detectAlpha(data: Uint8ClampedArray) {
 					options: { ...initialOptions }
 				}
 			];
+		}
+		if (failed.length) {
+			addNotice(`Failed to decode: ${failed.join(', ')}`, 'warning');
 		}
 	}
 

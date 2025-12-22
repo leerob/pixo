@@ -82,9 +82,7 @@ export async function compressImage(imageData: ImageData, options: CompressOptio
 	}
 
 	const elapsedMs = performance.now() - t0;
-	// Create a fresh buffer to avoid SharedArrayBuffer typing issues
-	const view = new Uint8Array(bytes);
-	const blob = new Blob([view], { type: mime });
+	const blob = new Blob([bytes], { type: mime });
 	return { bytes, blob, elapsedMs };
 }
 
