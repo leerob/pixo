@@ -170,6 +170,8 @@ comprs input.png -o output.jpg -v
 | `--subsampling`     | JPEG chroma subsampling (`s444`, `s420`)                         | s444                       |
 | `--filter`          | PNG filter (`none`, `sub`, `up`, `average`, `paeth`, `adaptive`, `adaptive-fast`, `adaptive-sampled`) | adaptive                   |
 | `--adaptive-sample-interval` | Rows between full adaptive evaluations when using `adaptive-sampled` | 4 |
+| `--png-preset`      | PNG preset (`fast`, `max`) that overrides compression/filter     | _none_                     |
+| `--jpeg-preset`     | JPEG preset (`fast`, `max-quality`) that overrides quality/subsampling | _none_                |
 | `--grayscale`       | Convert to grayscale                                             | false                      |
 | `-v, --verbose`     | Show detailed output                                             | false                      |
 

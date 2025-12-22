@@ -49,6 +49,10 @@ struct Args {
     #[arg(long, value_enum, default_value = "adaptive")]
     filter: FilterArg,
 
+    /// PNG preset (overrides compression/filter)
+    #[arg(long, value_enum)]
+    png_preset: Option<PngPresetArg>,
+
     /// Interval for adaptive-sampled filter (rows between full evaluations)
     #[arg(
         long,
@@ -56,6 +60,10 @@ struct Args {
         value_parser = clap::value_parser!(u32).range(1..=1_000_000)
     )]
     adaptive_sample_interval: u32,
+
+    /// JPEG preset (overrides quality/subsampling)
+    #[arg(long, value_enum)]
+    jpeg_preset: Option<JpegPresetArg>,
 
     /// Convert to grayscale
     #[arg(long)]
@@ -128,6 +136,22 @@ impl FilterArg {
             },
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum PngPresetArg {
+    /// Faster encoding, slightly larger output
+    Fast,
+    /// Maximum compression (slowest)
+    Max,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum JpegPresetArg {
+    /// Faster encoding, smaller output (Q=75, 4:2:0)
+    Fast,
+    /// Higher quality (Q=90, 4:4:4)
+    MaxQuality,
 }
 
 /// Decoded image data.
@@ -447,9 +471,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut output_data = Vec::new();
     match format {
         OutputFormat::Png => {
-            let options = PngOptions {
-                compression_level: args.compression,
-                filter_strategy: args.filter.to_strategy(args.adaptive_sample_interval),
+            let options = match args.png_preset {
+                Some(PngPresetArg::Fast) => PngOptions::fast(),
+                Some(PngPresetArg::Max) => PngOptions::max_compression(),
+                None => PngOptions {
+                    compression_level: args.compression,
+                    filter_strategy: args.filter.to_strategy(args.adaptive_sample_interval),
+                },
             };
             comprs::png::encode_into(
                 &mut output_data,
@@ -461,17 +489,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             )?
         }
         OutputFormat::Jpeg | OutputFormat::Jpg => {
-            let options = JpegOptions {
-                quality: args.quality,
-                subsampling: args.subsampling.into(),
-                restart_interval: None,
+            let (quality, options) = match args.jpeg_preset {
+                Some(JpegPresetArg::Fast) => {
+                    let opts = JpegOptions::fast();
+                    (opts.quality, opts)
+                }
+                Some(JpegPresetArg::MaxQuality) => {
+                    let opts = JpegOptions::max_quality();
+                    (opts.quality, opts)
+                }
+                None => (
+                    args.quality,
+                    JpegOptions {
+                        quality: args.quality,
+                        subsampling: args.subsampling.into(),
+                        restart_interval: None,
+                    },
+                ),
             };
             comprs::jpeg::encode_with_options_into(
                 &mut output_data,
                 &pixels,
                 width,
                 height,
-                args.quality,
+                quality,
                 color_type,
                 &options,
             )?
