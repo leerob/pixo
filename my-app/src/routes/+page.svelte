@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { compressImage, type PngFilter } from '$lib/wasm';
+	import { onDestroy } from 'svelte';
 
 	type JobStatus = 'idle' | 'compressing' | 'done' | 'error';
 
@@ -182,6 +183,10 @@ function detectAlpha(data: Uint8ClampedArray) {
 		}
 		jobs = [];
 	}
+
+	onDestroy(() => {
+		revokeAll();
+	});
 
 	function updateJob(id: string, updater: (job: Job) => Job) {
 		jobs = jobs.map((job) => (job.id === id ? updater(job) : job));
