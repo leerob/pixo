@@ -84,6 +84,8 @@ pub fn apply_filters(
     let mut prev_row: &[u8] = &zero_row;
     let mut adaptive_scratch = AdaptiveScratch::new(row_bytes);
     let mut last_filter: u8 = FILTER_PAETH; // default guess for sampled reuse
+    // Track last used filter to bias adaptive_fast toward recent winner.
+    let mut last_adaptive_filter: Option<u8> = None;
 
     for y in 0..height as usize {
         let row_start = y * row_bytes;
@@ -116,6 +118,27 @@ pub fn apply_filters(
                     );
                 }
             }
+            FilterStrategy::AdaptiveFast => {
+                let base = output.len();
+                filter_row(
+                    row,
+                    if y == 0 { &zero_row[..] } else { prev_row },
+                    bytes_per_pixel,
+                    // Bias adaptive fast toward the previous winning filter.
+                    match last_adaptive_filter {
+                        Some(FILTER_SUB) => FilterStrategy::Sub,
+                        Some(FILTER_UP) => FilterStrategy::Up,
+                        Some(FILTER_PAETH) => FilterStrategy::Paeth,
+                        _ => FilterStrategy::AdaptiveFast,
+                    },
+                    &mut output,
+                    &mut adaptive_scratch,
+                );
+                if let Some(&f) = output.get(base) {
+                    last_filter = f;
+                    last_adaptive_filter = Some(f);
+                }
+            }
             _ => {
                 let base = output.len();
                 filter_row(
@@ -126,10 +149,8 @@ pub fn apply_filters(
                     &mut output,
                     &mut adaptive_scratch,
                 );
-                if matches!(options.filter_strategy, FilterStrategy::AdaptiveFast) {
-                    if let Some(&f) = output.get(base) {
-                        last_filter = f;
-                    }
+                if let Some(&f) = output.get(base) {
+                    last_filter = f;
                 }
             }
         }
