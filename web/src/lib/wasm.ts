@@ -34,10 +34,6 @@ export function initWasm() {
 	return initialized;
 }
 
-async function ensureWasmLoaded() {
-	return initWasm();
-}
-
 const filterMap: Record<PngFilter, number> = {
 	none: 0,
 	sub: 1,
@@ -61,14 +57,13 @@ function rgbaToRgb(data: Uint8ClampedArray) {
 }
 
 export async function compressImage(imageData: ImageData, options: CompressOptions): Promise<CompressResult> {
-	await ensureWasmLoaded();
+	await initWasm();
 
-	const format = options.format;
 	const t0 = performance.now();
 	let bytes: Uint8Array;
-	let mime = 'image/png';
+	let mime: string;
 
-	if (format === 'png') {
+	if (options.format === 'png') {
 		const compressionLevel = clamp(options.compressionLevel ?? 6, 1, 9);
 		const filterCode = filterMap[options.filter ?? 'adaptive'];
 		const rgba = new Uint8Array(imageData.data);
