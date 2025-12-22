@@ -6,9 +6,9 @@ pub mod chunk;
 pub mod filter;
 
 use crate::color::ColorType;
-use crate::compress::deflate::deflate_zlib_packed;
+use crate::compress::deflate::deflate_zlib;
 #[cfg(feature = "timing")]
-use crate::compress::deflate::{deflate_zlib_packed_with_stats, DeflateStats};
+use crate::compress::deflate::{deflate_zlib_with_stats, DeflateStats};
 use crate::error::{Error, Result};
 
 /// PNG file signature (magic bytes).
@@ -177,7 +177,7 @@ pub fn encode_into(
 
     // Apply filtering and compression
     let filtered = filter::apply_filters(data, width, height, bytes_per_pixel, options);
-    let compressed = deflate_zlib_packed(&filtered, options.compression_level);
+    let compressed = deflate_zlib(&filtered, options.compression_level);
 
     // Write IDAT chunk(s)
     write_idat_chunks(output, &compressed);
@@ -232,7 +232,7 @@ pub fn encode_into_with_stats(
     write_ihdr(output, width, height, color_type);
 
     let filtered = filter::apply_filters(data, width, height, bytes_per_pixel, options);
-    let (compressed, stats) = deflate_zlib_packed_with_stats(&filtered, options.compression_level);
+    let (compressed, stats) = deflate_zlib_with_stats(&filtered, options.compression_level);
     write_idat_chunks(output, &compressed);
     write_iend(output);
 

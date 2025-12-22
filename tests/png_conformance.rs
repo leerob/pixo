@@ -10,6 +10,7 @@ use proptest::prelude::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 mod support;
 use support::pngsuite::read_pngsuite;
+use support::realworld::{encode_png_reference, load_real_images};
 
 /// Test that PNG output has correct header.
 #[test]
@@ -441,4 +442,109 @@ fn test_png_rejects_image_too_large() {
     let height = 1;
     let err = png::encode(&[], width, height, ColorType::Rgb).unwrap_err();
     assert!(matches!(err, Error::ImageTooLarge { .. }));
+}
+
+fn size_slack(bytes: usize, percent: f64, floor: usize) -> usize {
+    let pct = (bytes as f64 * percent).round() as usize;
+    pct.max(floor)
+}
+
+/// Real-world PNG roundtrip with size regression guards versus the `image` reference encoder.
+#[test]
+fn test_png_real_world_roundtrip_and_size() {
+    let Ok(images) = load_real_images() else {
+        eprintln!("Skipping real-world PNG test: fixtures unavailable (offline?)");
+        return;
+    };
+
+    // Thresholds intentionally include small slack to avoid flakiness across encoders.
+    // If the encoder behavior changes intentionally, update these bounds alongside
+    // a note in the commit message explaining the expected size delta.
+    let presets = [
+        ("default", png::PngOptions::default(), 0.05, 768usize),
+        ("balanced", png::PngOptions::balanced(), 0.03, 512usize),
+        ("max", png::PngOptions::max_compression(), 0.01, 256usize),
+    ];
+
+    let max_pixels: u64 = 1_200_000; // cap to keep runtime reasonable (~1.2 MP)
+
+    for img in images {
+        if (img.width as u64) * (img.height as u64) > max_pixels {
+            eprintln!(
+                "Skipping {} ({}x{}) for PNG size test: too large for fast run",
+                img.name, img.width, img.height
+            );
+            continue;
+        }
+
+        let mut color_types = vec![ColorType::Rgb];
+        if img.has_transparency() {
+            color_types.push(ColorType::Rgba);
+        }
+
+        for ct in color_types {
+            let Some(source_pixels) = img.pixels(ct) else {
+                continue;
+            };
+
+            let reference = encode_png_reference(source_pixels, img.width, img.height, ct)
+                .expect("encode ref png");
+
+            for (label, opts, pct_slack, abs_slack) in presets.clone() {
+                let encoded =
+                    png::encode_with_options(source_pixels, img.width, img.height, ct, &opts)
+                        .expect("encode comprs png");
+                let decoded = image::load_from_memory(&encoded).unwrap_or_else(|e| {
+                    panic!(
+                        "decode comprs png failed for {} preset {}: {e}",
+                        img.name, label
+                    )
+                });
+
+                match ct {
+                    ColorType::Rgba => {
+                        let decoded_rgba = decoded.to_rgba8();
+                        assert_eq!(
+                            decoded_rgba.as_raw(),
+                            source_pixels,
+                            "RGBA mismatch for {} ({}) with preset {}",
+                            img.name,
+                            decoded.dimensions().0,
+                            label
+                        );
+                    }
+                    ColorType::Rgb => {
+                        let decoded_rgb = decoded.to_rgb8();
+                        assert_eq!(
+                            decoded_rgb.as_raw(),
+                            source_pixels,
+                            "RGB mismatch for {} ({}) with preset {}",
+                            img.name,
+                            decoded.dimensions().0,
+                            label
+                        );
+                    }
+                    _ => {}
+                }
+
+                let slack = size_slack(reference.len(), pct_slack, abs_slack);
+                assert!(
+                    encoded.len() <= reference.len() + slack,
+                    "PNG size regression for {} preset {label}: comprs={} ref={} (slack {})",
+                    img.name,
+                    encoded.len(),
+                    reference.len(),
+                    slack
+                );
+
+                if label == "max" {
+                    assert!(
+                        encoded.len() <= reference.len() + abs_slack,
+                        "Max compression should not exceed reference for {}",
+                        img.name
+                    );
+                }
+            }
+        }
+    }
 }

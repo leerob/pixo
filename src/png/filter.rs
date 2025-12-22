@@ -97,7 +97,10 @@ pub fn apply_filters(
     {
         // Parallel gains when rows are numerous; avoid overhead on tiny images.
         if height > 32
-            && matches!(strategy, FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast | FilterStrategy::AdaptiveSampled { .. })
+            && matches!(
+                strategy,
+                FilterStrategy::Adaptive | FilterStrategy::AdaptiveSampled { .. }
+            )
         {
             return apply_filters_parallel(
                 data,

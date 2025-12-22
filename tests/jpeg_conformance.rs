@@ -9,6 +9,7 @@ use proptest::prelude::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 mod support;
 use support::jpeg_corpus::read_jpeg_corpus;
+use support::realworld::{encode_jpeg_reference, load_real_images, psnr};
 
 /// Test that JPEG output has correct markers.
 #[test]
@@ -571,4 +572,119 @@ fn test_sos_present() {
         }
     }
     assert!(found_sos, "SOS marker not found");
+}
+
+fn size_slack(bytes: usize, percent: f64, floor: usize) -> usize {
+    let pct = (bytes as f64 * percent).round() as usize;
+    pct.max(floor)
+}
+
+/// Real-world JPEG: ensure size competitiveness and preserve quality versus the `image` crate.
+#[test]
+fn test_jpeg_real_world_size_and_quality() {
+    let Ok(images) = load_real_images() else {
+        eprintln!("Skipping real-world JPEG test: fixtures unavailable (offline?)");
+        return;
+    };
+
+    // Thresholds carry measured slack to tolerate minor encoder drift while still
+    // catching meaningful regressions. If encoder changes are intentional, adjust
+    // these bounds and document the new expectations in the commit message.
+    let qualities = [70u8, 85u8, 95u8];
+    let max_pixels: u64 = 1_200_000; // cap runtime (~1.2 MP)
+
+    for img in images {
+        if (img.width as u64) * (img.height as u64) > max_pixels {
+            eprintln!(
+                "Skipping {} ({}x{}) for JPEG size/quality test: too large for fast run",
+                img.name, img.width, img.height
+            );
+            continue;
+        }
+
+        let Some(rgb) = img.pixels(ColorType::Rgb) else {
+            continue;
+        };
+
+        for &quality in &qualities {
+            let reference =
+                encode_jpeg_reference(rgb, img.width, img.height, quality).expect("ref jpeg");
+            let ref_decoded = image::load_from_memory(&reference)
+                .expect("decode ref")
+                .to_rgb8();
+            let ref_psnr = psnr(rgb, ref_decoded.as_raw()).expect("psnr ref");
+
+            let opts_444 = jpeg::JpegOptions {
+                quality,
+                subsampling: jpeg::Subsampling::S444,
+                restart_interval: None,
+            };
+            let encoded_444 =
+                jpeg::encode_with_options(rgb, img.width, img.height, quality, ColorType::Rgb, &opts_444)
+                    .expect("encode 444");
+            let decoded_444 = image::load_from_memory(&encoded_444)
+                .expect("decode 444")
+                .to_rgb8();
+            let psnr_444 = psnr(rgb, decoded_444.as_raw()).expect("psnr 444");
+
+            let slack_444 = size_slack(reference.len(), 0.03, 768);
+            assert!(
+                encoded_444.len() <= reference.len() + slack_444,
+                "JPEG 4:4:4 size regression for {} q{}: comprs={} ref={} slack={}",
+                img.name,
+                quality,
+                encoded_444.len(),
+                reference.len(),
+                slack_444
+            );
+            assert!(
+                psnr_444 + 0.5 >= ref_psnr,
+                "JPEG 4:4:4 quality regression for {} q{}: psnr={:.2} ref={:.2}",
+                img.name,
+                quality,
+                psnr_444,
+                ref_psnr
+            );
+
+            let opts_420 = jpeg::JpegOptions {
+                quality,
+                subsampling: jpeg::Subsampling::S420,
+                restart_interval: None,
+            };
+            let encoded_420 =
+                jpeg::encode_with_options(rgb, img.width, img.height, quality, ColorType::Rgb, &opts_420)
+                    .expect("encode 420");
+            let decoded_420 = image::load_from_memory(&encoded_420)
+                .expect("decode 420")
+                .to_rgb8();
+            let psnr_420 = psnr(rgb, decoded_420.as_raw()).expect("psnr 420");
+
+            assert!(
+                encoded_420.len() < encoded_444.len(),
+                "4:2:0 should be smaller than 4:4:4 for {} q{} (420={} 444={})",
+                img.name,
+                quality,
+                encoded_420.len(),
+                encoded_444.len()
+            );
+            let slack_420 = size_slack(reference.len(), 0.02, 512);
+            assert!(
+                encoded_420.len() <= reference.len() + slack_420,
+                "JPEG 4:2:0 size regression vs ref for {} q{}: comprs={} ref={} slack={}",
+                img.name,
+                quality,
+                encoded_420.len(),
+                reference.len(),
+                slack_420
+            );
+            assert!(
+                psnr_420 + 1.5 >= psnr_444,
+                "4:2:0 PSNR drop too large for {} q{}: psnr420={:.2} psnr444={:.2}",
+                img.name,
+                quality,
+                psnr_420,
+                psnr_444
+            );
+        }
+    }
 }
