@@ -31,9 +31,9 @@ DEFLATE organizes data into **blocks**. Each block can use different compression
 
 Each block starts with a 3-bit header:
 
-| Bits | Meaning |
-|------|---------|
-| 1 bit | BFINAL: 1 if this is the last block |
+| Bits   | Meaning                                                          |
+| ------ | ---------------------------------------------------------------- |
+| 1 bit  | BFINAL: 1 if this is the last block                              |
 | 2 bits | BTYPE: Block type (00=stored, 01=fixed, 10=dynamic, 11=reserved) |
 
 ```rust
@@ -51,14 +51,17 @@ fn encode_fixed_huffman(tokens: &[Token]) -> Vec<u8> {
 ### Block Types
 
 **Type 0 (Stored)**: No compression. Just copy bytes verbatim.
+
 - Used when data is incompressible (already compressed, random)
 - 5-byte overhead per 65535 bytes
 
 **Type 1 (Fixed Huffman)**: Use predefined Huffman tables.
+
 - No need to transmit the code tables
 - Good for small data or when encoding speed matters
 
 **Type 2 (Dynamic Huffman)**: Custom Huffman tables optimized for this block.
+
 - Tables are transmitted before the data
 - Best compression for larger blocks
 
@@ -93,7 +96,7 @@ DEFLATE uses a unified alphabet for literals (0-255), end-of-block (256), and le
 Match lengths (3-258) are encoded as codes 257-285 plus extra bits:
 
 | Code | Length | Extra Bits | Range |
-|------|--------|------------|-------|
+| ---- | ------ | ---------- | ----- |
 | 257  | 3      | 0          | 3     |
 | 258  | 4      | 0          | 4     |
 | ...  | ...    | ...        | ...   |
@@ -105,17 +108,18 @@ Match lengths (3-258) are encoded as codes 257-285 plus extra bits:
 ```rust
 // From src/compress/deflate.rs
 const LENGTH_BASE: [u16; 29] = [
-    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
     35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258,
 ];
 
 const LENGTH_EXTRA: [u8; 29] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
     3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
 ];
 ```
 
 **Example**: Encoding length 18
+
 1. Find the code: 18 is in range 17-18 (code 268)
 2. Extra bits needed: 1 bit
 3. Extra value: 18 - 17 = 1
@@ -125,27 +129,27 @@ const LENGTH_EXTRA: [u8; 29] = [
 
 Distances (1-32768) have their own alphabet (0-29) with extra bits:
 
-| Code | Distance | Extra Bits | Range |
-|------|----------|------------|-------|
-| 0    | 1        | 0          | 1     |
-| 1    | 2        | 0          | 2     |
-| 2    | 3        | 0          | 3     |
-| 3    | 4        | 0          | 4     |
-| 4    | 5-6      | 1          | 5-6   |
-| 5    | 7-8      | 1          | 7-8   |
-| ...  | ...      | ...        | ...   |
-| 29   | 24577-32768 | 13       | 24577-32768 |
+| Code | Distance    | Extra Bits | Range       |
+| ---- | ----------- | ---------- | ----------- |
+| 0    | 1           | 0          | 1           |
+| 1    | 2           | 0          | 2           |
+| 2    | 3           | 0          | 3           |
+| 3    | 4           | 0          | 4           |
+| 4    | 5-6         | 1          | 5-6         |
+| 5    | 7-8         | 1          | 7-8         |
+| ...  | ...         | ...        | ...         |
+| 29   | 24577-32768 | 13         | 24577-32768 |
 
 ```rust
 // From src/compress/deflate.rs
 const DISTANCE_BASE: [u16; 30] = [
-    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 
-    257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+    257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
     8193, 12289, 16385, 24577,
 ];
 
 const DISTANCE_EXTRA: [u8; 30] = [
-    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
     7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
 ];
 ```
@@ -176,6 +180,7 @@ Tokens: A, B, R, A, C, A, D, Match(length=4, distance=7)
 ```
 
 Step by step:
+
 1. **A** (literal 65): Look up code for symbol 65 → Huffman code
 2. **B** (literal 66): Look up code for symbol 66 → Huffman code
 3. **R** (literal 82): Look up code for symbol 82 → Huffman code
@@ -272,7 +277,7 @@ Sometimes data is incompressible. In this case, stored blocks are more efficient
 // From src/compress/deflate.rs
 pub fn deflate_stored(data: &[u8]) -> Vec<u8> {
     let mut output = Vec::new();
-    
+
     for (i, chunk) in data.chunks(65535).enumerate() {
         let is_final = i == num_chunks - 1;
         let len = chunk.len() as u16;
@@ -299,13 +304,13 @@ pub fn deflate_stored(data: &[u8]) -> Vec<u8> {
 
 DEFLATE typically achieves:
 
-| Data Type | Compression Ratio |
-|-----------|-------------------|
-| English text | 30-40% of original |
-| Source code | 20-30% of original |
-| Structured data (JSON, XML) | 10-20% of original |
-| Photographs | 80-100% (use JPEG instead!) |
-| Random/encrypted data | ~100% (incompressible) |
+| Data Type                   | Compression Ratio           |
+| --------------------------- | --------------------------- |
+| English text                | 30-40% of original          |
+| Source code                 | 20-30% of original          |
+| Structured data (JSON, XML) | 10-20% of original          |
+| Photographs                 | 80-100% (use JPEG instead!) |
+| Random/encrypted data       | ~100% (incompressible)      |
 
 ## Why DEFLATE Works So Well
 
@@ -319,15 +324,16 @@ The combination of LZ77 + Huffman is synergistic:
 
 ## Comparison with Other Formats
 
-| Algorithm | Used In | Approach |
-|-----------|---------|----------|
-| DEFLATE | PNG, gzip, ZIP | LZ77 + Huffman |
-| bzip2 | bz2 files | BWT + MTF + Huffman |
-| LZMA | 7z, xz | LZ77 + Range coding |
-| Zstandard | zst files | LZ77 + FSE + Huffman |
-| Brotli | Web (HTTP) | LZ77 + 2nd-order context + Huffman |
+| Algorithm | Used In        | Approach                           |
+| --------- | -------------- | ---------------------------------- |
+| DEFLATE   | PNG, gzip, ZIP | LZ77 + Huffman                     |
+| bzip2     | bz2 files      | BWT + MTF + Huffman                |
+| LZMA      | 7z, xz         | LZ77 + Range coding                |
+| Zstandard | zst files      | LZ77 + FSE + Huffman               |
+| Brotli    | Web (HTTP)     | LZ77 + 2nd-order context + Huffman |
 
 DEFLATE remains popular because:
+
 - Excellent software support
 - Good balance of speed and compression
 - Well-understood and standardized
@@ -335,6 +341,7 @@ DEFLATE remains popular because:
 ## Summary
 
 DEFLATE combines:
+
 - **LZ77** for pattern matching
 - **Huffman coding** for optimal bit allocation
 - **Block structure** for flexibility

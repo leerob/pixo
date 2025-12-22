@@ -5,11 +5,13 @@ JPEG (Joint Photographic Experts Group) is the most widely used image format for
 ## When to Use JPEG
 
 **JPEG excels at:**
+
 - Photographs (natural scenes with smooth gradients)
 - Any image where small imperfections are acceptable
 - Web images where bandwidth matters
 
 **Avoid JPEG for:**
+
 - Text and screenshots (artifacts around sharp edges)
 - Graphics with solid colors (better as PNG)
 - Images needing transparency (JPEG has no alpha channel)
@@ -33,17 +35,18 @@ JPEG (Joint Photographic Experts Group) is the most widely used image format for
 
 Each stage has a specific purpose:
 
-| Stage | Purpose | Lossy? |
-|-------|---------|--------|
-| Color Convert | Separate brightness from color | No |
-| DCT | Transform to frequency domain | No |
-| Quantize | Discard high-frequency detail | **Yes** |
-| Entropy Prep | Prepare for efficient encoding | No |
-| Huffman Encode | Compress the result | No |
+| Stage          | Purpose                        | Lossy?  |
+| -------------- | ------------------------------ | ------- |
+| Color Convert  | Separate brightness from color | No      |
+| DCT            | Transform to frequency domain  | No      |
+| Quantize       | Discard high-frequency detail  | **Yes** |
+| Entropy Prep   | Prepare for efficient encoding | No      |
+| Huffman Encode | Compress the result            | No      |
 
 ## Stage 1: Color Space Conversion
 
 JPEG converts RGB to **YCbCr**:
+
 - **Y**: Luminance (brightness)
 - **Cb**: Blue chrominance (blue - luminance)
 - **Cr**: Red chrominance (red - luminance)
@@ -105,7 +108,7 @@ fn extract_block(
 ) -> ([f32; 64], [f32; 64], [f32; 64]) {
     let mut y_block = [0.0f32; 64];
     // ...
-    
+
     for dy in 0..8 {
         for dx in 0..8 {
             // Clamp to image bounds (padding)
@@ -200,9 +203,9 @@ This places zeros together at the end, enabling efficient run-length encoding.
 ```rust
 // From src/jpeg/quantize.rs
 pub const ZIGZAG: [usize; 64] = [
-    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 
-    12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 
-    35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 
+    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
+    12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
     58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 ];
 ```
@@ -225,10 +228,10 @@ pub fn encode_block(..., prev_dc: i16, ...) -> i16 {
     let dc = zigzag[0];
     let dc_diff = dc - prev_dc;
     let dc_cat = category(dc_diff);
-    
+
     // Encode category then value
     // ...
-    
+
     dc  // Return for next block's difference
 }
 ```
@@ -236,6 +239,7 @@ pub fn encode_block(..., prev_dc: i16, ...) -> i16 {
 ## Stage 7: AC Coefficient Encoding (Run-Length)
 
 AC coefficients are encoded as (run, value) pairs:
+
 - **Run**: Number of zeros before this value
 - **Value**: The non-zero coefficient
 
@@ -355,7 +359,7 @@ let scale = if quality < 50 {
 ```
 
 | Quality | Scale | Compression | Visual Quality |
-|---------|-------|-------------|----------------|
+| ------- | ----- | ----------- | -------------- |
 | 100     | 1     | ~2-3x       | Excellent      |
 | 85      | 30    | ~10-15x     | Very good      |
 | 50      | 100   | ~20-30x     | Good           |
@@ -370,6 +374,7 @@ let jpeg = jpeg::encode(&pixels, 1, 1, 85)?;
 ```
 
 What happens:
+
 1. Validate input
 2. Create quantization tables for quality 85
 3. Create Huffman tables
@@ -395,12 +400,13 @@ Understanding JPEG's artifacts helps explain the algorithm:
 ## Summary
 
 JPEG achieves excellent photo compression through:
+
 - **Color space conversion** (YCbCr) for decorrelation
 - **8×8 block DCT** to concentrate energy
 - **Quantization** to discard imperceptible detail
 - **Zigzag scan** to group zeros
 - **DPCM** for DC coefficients
-- **Run-length encoding** for AC coefficients  
+- **Run-length encoding** for AC coefficients
 - **Huffman coding** for final compression
 
 The result: 10-20x compression with minimal visible quality loss.

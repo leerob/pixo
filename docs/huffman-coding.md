@@ -17,17 +17,19 @@ Given a set of symbols and their frequencies, find a binary encoding that minimi
 Suppose we want to encode a message containing only four symbols:
 
 | Symbol | Frequency | Probability |
-|--------|-----------|-------------|
+| ------ | --------- | ----------- |
 | A      | 50        | 0.50        |
 | B      | 25        | 0.25        |
 | C      | 15        | 0.15        |
 | D      | 10        | 0.10        |
 
 **Naive approach**: Use fixed 2-bit codes (since we have 4 symbols):
+
 - A = 00, B = 01, C = 10, D = 11
 - Total bits: 100 symbols × 2 bits = **200 bits**
 
 **Optimal approach**: Use variable-length codes:
+
 - A = 0 (1 bit)
 - B = 10 (2 bits)
 - C = 110 (3 bits)
@@ -58,6 +60,7 @@ The message becomes ambiguous! Prefix-free codes guarantee unique decodability.
 ### The Huffman Tree
 
 Prefix-free codes can be visualized as a binary tree:
+
 - Each **leaf** is a symbol
 - Each **path** from root to leaf defines the code (left=0, right=1)
 - No symbol can be an ancestor of another (hence prefix-free)
@@ -109,18 +112,18 @@ Step 1: Initial queue
 
 Step 2: Combine D(10) and C(15)
   Create node N1(25) with children D and C
-  
+
   Queue: [B:25] [N1:25] [A:50]
-  
+
          N1(25)
          /    \
       [D:10] [C:15]
 
 Step 3: Combine B(25) and N1(25)
   Create node N2(50) with children B and N1
-  
+
   Queue: [A:50] [N2:50]
-  
+
          N2(50)
          /    \
       [B:25]  N1(25)
@@ -129,7 +132,7 @@ Step 3: Combine B(25) and N1(25)
 
 Step 4: Combine A(50) and N2(50)
   Create root node N3(100)
-  
+
            N3(100)
            /     \
        [A:50]    N2(50)
@@ -140,6 +143,7 @@ Step 4: Combine A(50) and N2(50)
 ```
 
 Reading the codes by traversing left (0) and right (1):
+
 - A: left → **0**
 - B: right, left → **10**
 - D: right, right, left → **110**
@@ -152,6 +156,7 @@ In practice, we don't store the tree structure. Instead, we use **canonical Huff
 ### The Canonical Property
 
 Canonical codes follow two rules:
+
 1. Shorter codes come before (are numerically less than) longer codes
 2. Codes of the same length are assigned in symbol order
 
@@ -276,6 +281,7 @@ pub fn fixed_literal_codes() -> Vec<HuffmanCode> {
 ## JPEG's Huffman Tables
 
 JPEG uses different Huffman tables for:
+
 - **DC coefficients** (the average brightness of each 8×8 block)
 - **AC coefficients** (the details within each block)
 - **Luminance** (brightness) and **Chrominance** (color)
@@ -333,6 +339,7 @@ pub struct BitWriterMsb { /* MSB first */ }
 ## Practical Performance
 
 Huffman coding typically achieves compression ratios of:
+
 - **Text**: 40-60% of original (1.7x - 2.5x compression)
 - **Random data**: ~100% (no compression possible)
 - **Highly redundant data**: Can approach theoretical entropy
@@ -352,6 +359,7 @@ When combined with LZ77 (as in DEFLATE), compression improves dramatically becau
 ## Summary
 
 Huffman coding provides:
+
 - **Optimal** symbol-by-symbol compression
 - **Prefix-free** codes for unambiguous decoding
 - **Canonical form** for compact table representation

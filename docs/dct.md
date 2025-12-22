@@ -24,12 +24,12 @@ Photographs have lots of the left, very little of the right. The DCT exploits th
 
 In image processing, "frequency" refers to how rapidly pixel values change:
 
-| Frequency | Visual Pattern | Example |
-|-----------|----------------|---------|
-| Zero (DC) | Constant value everywhere | Solid color fill |
-| Low | Slow, smooth changes | Sky gradient |
-| Medium | Moderate detail | Fabric texture |
-| High | Rapid, sharp changes | Text edges, hair strands |
+| Frequency | Visual Pattern            | Example                  |
+| --------- | ------------------------- | ------------------------ |
+| Zero (DC) | Constant value everywhere | Solid color fill         |
+| Low       | Slow, smooth changes      | Sky gradient             |
+| Medium    | Moderate detail           | Fabric texture           |
+| High      | Rapid, sharp changes      | Text edges, hair strands |
 
 ## The 1D DCT
 
@@ -56,6 +56,7 @@ Consider 8 pixel values: `[100, 110, 120, 130, 140, 130, 120, 110]`
 This is roughly a smooth curve peaking in the middle. Let's compute the first few DCT coefficients:
 
 **DC coefficient (k=0)**: The average, scaled.
+
 ```
 X[0] = (1/√8) × Σ x[n] × cos(0)
      = (1/√8) × (100+110+120+130+140+130+120+110) × 1
@@ -63,6 +64,7 @@ X[0] = (1/√8) × Σ x[n] × cos(0)
 ```
 
 **First AC coefficient (k=1)**: Measures one half-cycle oscillation.
+
 ```
 X[1] = √(2/8) × Σ x[n] × cos(π(2n+1)/16)
      ≈ small value (the data doesn't oscillate once)
@@ -92,6 +94,7 @@ Images are 2D, so JPEG uses a 2D DCT on 8×8 blocks.
 ### Separability
 
 A key property: the 2D DCT can be computed as two 1D DCTs:
+
 1. Apply 1D DCT to each row
 2. Apply 1D DCT to each column of the result
 
@@ -223,6 +226,7 @@ fn dct_1d(input: &[f32], output: &mut [f32]) {
 ```
 
 Where ALPHA provides the normalization:
+
 ```rust
 const ALPHA: [f32; 8] = [
     0.7071067811865476,  // 1/√2 for k=0
@@ -266,18 +270,19 @@ fn extract_block(...) {
 
 The DCT is related to the DFT (Discrete Fourier Transform), but better for image compression:
 
-| Property | DCT | DFT |
-|----------|-----|-----|
-| Output | Real numbers | Complex numbers |
-| Energy compaction | Excellent | Good |
-| Boundary behavior | Smooth (symmetric) | Wraparound |
-| Computation | ~N² | ~N log N (with FFT) |
+| Property          | DCT                | DFT                 |
+| ----------------- | ------------------ | ------------------- |
+| Output            | Real numbers       | Complex numbers     |
+| Energy compaction | Excellent          | Good                |
+| Boundary behavior | Smooth (symmetric) | Wraparound          |
+| Computation       | ~N²                | ~N log N (with FFT) |
 
 The DCT's smooth boundary handling is crucial — it implicitly mirrors the data, avoiding discontinuities at block edges.
 
 ## Fast DCT Algorithms
 
 The naive O(N²) DCT can be accelerated using algorithms like:
+
 - **Loeffler's algorithm**: 29 multiplications for 8-point DCT
 - **AAN algorithm**: Fast integer-based DCT
 - **SIMD implementations**: Process multiple values in parallel
@@ -287,6 +292,7 @@ Our implementation uses the straightforward approach for clarity, but production
 ## DCT and Compression
 
 After DCT:
+
 1. **DC coefficient** (position 0,0): Average value of the block
 2. **Low-frequency AC**: Smooth variations (important, keep)
 3. **High-frequency AC**: Fine detail (less important, can discard)
@@ -298,6 +304,7 @@ Quantization (the next step) divides by larger values for high frequencies, forc
 Consider what happens to different image patterns:
 
 **Solid block** (all pixels = 100):
+
 ```
 Input: All 100s
 DCT: Only DC is non-zero (≈283)
@@ -305,6 +312,7 @@ DCT: Only DC is non-zero (≈283)
 ```
 
 **Vertical edge**:
+
 ```
 Input: Left half = 0, Right half = 200
 DCT: Large DC (average ≈ 100)
@@ -313,6 +321,7 @@ DCT: Large DC (average ≈ 100)
 ```
 
 **Checkerboard**:
+
 ```
 Input: Alternating 0 and 255
 DCT: DC = 127 (average)
@@ -336,6 +345,7 @@ The DC coefficient typically contains **80-90% of the block's total energy**. JP
 ## Summary
 
 The Discrete Cosine Transform:
+
 - Converts spatial data to frequency components
 - Concentrates energy in low frequencies
 - Enables efficient lossy compression

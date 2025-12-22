@@ -65,38 +65,38 @@ Let's compress: `ABRACADABRA`
 Position 0: A
   Window: (empty)
   No match found → Literal 'A'
-  
+
 Position 1: B
   Window: A
   No match found → Literal 'B'
-  
+
 Position 2: R
   Window: AB
   No match found → Literal 'R'
-  
+
 Position 3: A
   Window: ABR
   Match found: 'A' at distance 3, length 1
   But minimum match length is 3, so → Literal 'A'
-  
+
 Position 4: C
   Window: ABRA
   No match found → Literal 'C'
-  
+
 Position 5: A
   Window: ABRAC
   No match found (no 3+ char match) → Literal 'A'
-  
+
 Position 6: D
   Window: ABRACA
   No match found → Literal 'D'
-  
+
 Position 7: A
   Window: ABRACAD
   Looking for match starting with 'A'...
   Found "ABRA" at distance 7, length 4!
   → Match(length=4, distance=7)
-  
+
 Final output: A B R A C A D [4,7]
               7 literals + 1 match = much smaller than 11 literals!
 ```
@@ -105,12 +105,12 @@ Final output: A B R A C A D [4,7]
 
 The window size is a trade-off:
 
-| Larger Window | Smaller Window |
-|---------------|----------------|
-| ✓ Find more matches | ✓ Less memory needed |
-| ✓ Better compression | ✓ Faster searching |
-| ✗ More memory | ✗ Fewer matches found |
-| ✗ Slower searching | ✗ Worse compression |
+| Larger Window        | Smaller Window        |
+| -------------------- | --------------------- |
+| ✓ Find more matches  | ✓ Less memory needed  |
+| ✓ Better compression | ✓ Faster searching    |
+| ✗ More memory        | ✗ Fewer matches found |
+| ✗ Slower searching   | ✗ Worse compression   |
 
 DEFLATE uses a **32KB window** (32,768 bytes), a well-chosen balance that works great for most data.
 
@@ -147,6 +147,7 @@ Hash table (indexed by hash of 3 bytes):
 ```
 
 When we need to find a match for "the" at position 14:
+
 1. Compute hash("the")
 2. Look up the chain for that hash
 3. Check each position in the chain for actual matches
@@ -174,7 +175,7 @@ The hash function uses a **multiplicative hash** with a prime multiplier (265443
 Different compression levels trade speed for compression ratio by adjusting how hard we search for matches:
 
 | Level | Chain Length | Lazy Matching | Speed | Compression |
-|-------|--------------|---------------|-------|-------------|
+| ----- | ------------ | ------------- | ----- | ----------- |
 | 1     | 4            | No            | Fast  | Fair        |
 | 5     | 64           | Yes           | Med   | Good        |
 | 9     | 1024         | Yes           | Slow  | Best        |
@@ -205,6 +206,7 @@ pub fn new(level: u8) -> Self {
 A clever optimization: sometimes the match at position N isn't as good as the match at position N+1.
 
 **Example**:
+
 ```
 Position 10: Can match 4 bytes
 Position 11: Can match 8 bytes
@@ -213,6 +215,7 @@ Position 11: Can match 8 bytes
 Without lazy matching, we'd take the 4-byte match and miss the 8-byte one.
 
 With lazy matching:
+
 1. Find match at position 10 (length 4)
 2. Peek at position 11's best match (length 8)
 3. Since 8 > 4+1, emit literal at position 10, then take the 8-byte match at 11
@@ -234,6 +237,7 @@ if self.lazy_matching && pos + 1 < data.len() {
 ## Why Minimum Length 3?
 
 Encoding a match requires:
+
 - Length code: variable bits (at least 1)
 - Distance code: 5+ bits
 
@@ -251,7 +255,7 @@ Data: "AAAAAAAAAA" (10 A's)
 Position 0: Literal 'A'
 Position 1: Match(length=9, distance=1)
             ← This copies from position 0, but extends beyond current position!
-            
+
 During decompression:
   Output: A
   Copy from distance 1: A → Output: AA
@@ -267,25 +271,27 @@ What about the very beginning when the window is empty? We simply can't find any
 
 ## LZ77 vs. Other Algorithms
 
-| Algorithm | Year | Approach |
-|-----------|------|----------|
+| Algorithm | Year | Approach                                 |
+| --------- | ---- | ---------------------------------------- |
 | LZ77      | 1977 | Sliding window, explicit back-references |
-| LZ78      | 1978 | Build dictionary of phrases |
-| LZW       | 1984 | LZ78 variant, used in GIF |
-| LZSS      | 1982 | LZ77 variant, flag literals vs matches |
-| LZMA      | 1998 | Advanced LZ77 + range coding |
+| LZ78      | 1978 | Build dictionary of phrases              |
+| LZW       | 1984 | LZ78 variant, used in GIF                |
+| LZSS      | 1982 | LZ77 variant, flag literals vs matches   |
+| LZMA      | 1998 | Advanced LZ77 + range coding             |
 
 DEFLATE uses a variant of LZSS combined with Huffman coding.
 
 ## Practical Compression Ratios
 
 LZ77 alone achieves:
+
 - **English text**: 40-50% of original
-- **Source code**: 30-40% of original  
+- **Source code**: 30-40% of original
 - **Already compressed**: ~100% (no benefit)
 - **Random data**: ~100% (no patterns to find)
 
 When combined with Huffman coding (as in DEFLATE), these improve to:
+
 - **English text**: 30-40% of original
 - **Source code**: 20-30% of original
 
@@ -341,6 +347,7 @@ pub fn compress(&mut self, data: &[u8]) -> Vec<Token> {
 ## Memory Usage
 
 Our implementation uses:
+
 - **Hash table**: 32K entries × 4 bytes = 128 KB
 - **Chain links**: 32K entries × 4 bytes = 128 KB
 - **Total**: ~256 KB for the compressor state
@@ -350,6 +357,7 @@ This is modest by modern standards, but was a significant consideration when LZ7
 ## Summary
 
 LZ77 provides:
+
 - **Dictionary compression** via back-references
 - **Sliding window** for bounded memory
 - **Hash chains** for fast matching

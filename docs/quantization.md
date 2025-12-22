@@ -33,6 +33,7 @@ Two key insights enable quantization:
 ### 1. Human Visual Sensitivity
 
 Our eyes aren't equally sensitive to all frequencies:
+
 - **Low frequencies**: Very sensitive (smooth gradients are important)
 - **High frequencies**: Less sensitive (fine detail is often imperceptible)
 
@@ -75,6 +76,7 @@ const STD_LUMINANCE_TABLE: [u8; 64] = [
 ```
 
 Visualized:
+
 ```
 Position in 8×8 block → quantization value
 
@@ -132,13 +134,13 @@ let scaled_value = ((std_table[i] as u32 * scale + 50) / 100)
 
 ### Scale Factor Examples
 
-| Quality | Scale | Effect |
-|---------|-------|--------|
+| Quality | Scale | Effect                                         |
+| ------- | ----- | ---------------------------------------------- |
 | 1       | 5000  | Values × 50: everything quantized to near-zero |
-| 25      | 200   | Values × 2: heavy quantization |
-| 50      | 100   | Standard tables unchanged |
-| 75      | 50    | Values ÷ 2: moderate quantization |
-| 100     | 0     | Values → 1: minimal quantization |
+| 25      | 200   | Values × 2: heavy quantization                 |
+| 50      | 100   | Standard tables unchanged                      |
+| 75      | 50    | Values ÷ 2: moderate quantization              |
+| 100     | 0     | Values → 1: minimal quantization               |
 
 ### Visual Impact
 
@@ -168,6 +170,7 @@ pub fn quantize_block(dct: &[f32; 64], quant_table: &[f32; 64]) -> [i16; 64] {
 ### Step-by-Step Example
 
 DCT block (after transformation):
+
 ```
   235.7   12.3   -8.5    2.1
   -18.4    7.2   -3.1    0.8
@@ -176,6 +179,7 @@ DCT block (after transformation):
 ```
 
 Quantization table (Q50):
+
 ```
    16     11     10     16
    12     12     14     19
@@ -184,6 +188,7 @@ Quantization table (Q50):
 ```
 
 Quantized result:
+
 ```
 round(235.7/16) = 15    round(12.3/11) = 1    round(-8.5/10) = -1   round(2.1/16) = 0
 round(-18.4/12) = -2    round(7.2/12) = 1     round(-3.1/14) = 0    round(0.8/19) = 0
@@ -202,11 +207,13 @@ From 16 non-zero values down to **7 non-zero values**! This is typical.
 ## The Zero Coefficient Effect
 
 After quantization, many coefficients become zero:
+
 - High-frequency coefficients are usually small to begin with
 - Large quantization divisors push them to zero
 - These zeros compress extremely well (run-length encoding)
 
 **Typical quantized block (Q75)**:
+
 ```
 DC  AC  AC  AC  AC  AC  AC  AC
 ┌────┬────┬────┬────┬────┬────┬────┬────┐
@@ -259,6 +266,7 @@ Reconstructed[i] = Quantized[i] × Q[i]
 ```
 
 **The error is permanent:**
+
 ```
 Original DCT: 47
 Quantized: 5 (after dividing by 10 and rounding)
@@ -270,14 +278,14 @@ This is what makes JPEG lossy.
 
 ## Quality vs. File Size
 
-| Quality | Approx. Size | Visual Quality |
-|---------|--------------|----------------|
+| Quality | Approx. Size | Visual Quality                  |
+| ------- | ------------ | ------------------------------- |
 | 95-100  | 80-100%      | Indistinguishable from original |
-| 80-95   | 20-50%       | Excellent, minor artifacts |
-| 60-80   | 10-20%       | Very good, some edge artifacts |
-| 30-60   | 5-10%        | Acceptable, visible artifacts |
-| 10-30   | 2-5%         | Poor, heavy blocking |
-| 1-10    | 1-2%         | Very poor, extreme artifacts |
+| 80-95   | 20-50%       | Excellent, minor artifacts      |
+| 60-80   | 10-20%       | Very good, some edge artifacts  |
+| 30-60   | 5-10%        | Acceptable, visible artifacts   |
+| 10-30   | 2-5%         | Poor, heavy blocking            |
+| 1-10    | 1-2%         | Very poor, extreme artifacts    |
 
 ## JPEG Artifacts Explained
 
@@ -337,6 +345,7 @@ Modern JPEG encoders may use **adaptive quantization** — different tables for 
 ## Custom Quantization Tables
 
 JPEG allows custom quantization tables to be embedded in the file. Some applications use:
+
 - **Flatter tables**: More uniform quality across frequencies
 - **Content-specific tables**: Optimized for faces, landscapes, etc.
 - **Perceptually optimized tables**: Research-derived improvements over the standard
@@ -351,10 +360,12 @@ Quantization is where JPEG's dramatic compression comes from:
 4. **Zeros compress well** via run-length encoding
 
 The quality parameter controls how aggressive this quantization is:
+
 - Higher quality = smaller divisors = more precision = larger file
 - Lower quality = larger divisors = more zeros = smaller file
 
 Understanding quantization helps you choose appropriate quality settings:
+
 - **Archival**: Quality 95-100
 - **Web display**: Quality 80-85
 - **Thumbnails**: Quality 60-70

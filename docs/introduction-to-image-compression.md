@@ -9,6 +9,7 @@ Imagine you have a 4K photograph (3840 × 2160 pixels). Each pixel needs 3 bytes
 ```
 
 A single uncompressed photo would be 24 megabytes! At that size:
+
 - A 256GB phone could only store about 10,000 photos
 - Loading a webpage with 10 images would require downloading 240MB
 - Streaming video would be completely impractical
@@ -28,6 +29,7 @@ All image compression falls into two categories:
 **How it works**: Finds and eliminates redundancy without discarding any information.
 
 **Use cases**:
+
 - Screenshots (sharp text and UI elements)
 - Medical imaging (every detail matters)
 - Graphics and logos (precise edges)
@@ -42,6 +44,7 @@ All image compression falls into two categories:
 **How it works**: Removes information that humans are unlikely to notice.
 
 **Use cases**:
+
 - Photographs (natural images have noise anyway)
 - Web images (bandwidth matters more than perfection)
 - Social media (good enough is good enough)
@@ -61,7 +64,7 @@ we can reduce the average bits per pixel.
 
 Example:
   - Blue sky pixel: occurs 60% of time → assign 2-bit code
-  - Cloud white:    occurs 30% of time → assign 3-bit code  
+  - Cloud white:    occurs 30% of time → assign 3-bit code
   - Bird black:     occurs 10% of time → assign 4-bit code
 
 Average: 0.6×2 + 0.3×3 + 0.1×4 = 2.5 bits vs 8 bits per pixel = 3.2x savings!
@@ -104,6 +107,7 @@ We can use fewer bits for this dominant information.
 ### 4. Perceptual Redundancy
 
 Human vision has specific limitations:
+
 - We're more sensitive to brightness changes than color changes
 - We can't perceive very small differences
 - We're less sensitive to details in rapidly changing regions
@@ -133,9 +137,10 @@ A biased coin has lower entropy — it's more predictable, so it can be compress
 
 ### Shannon's Source Coding Theorem
 
-> *The average number of bits needed to represent symbols from a source cannot be less than the entropy of that source.*
+> _The average number of bits needed to represent symbols from a source cannot be less than the entropy of that source._
 
 This means:
+
 - **Lossless compression can never beat the entropy limit**
 - If we want to go smaller, we must use lossy compression
 - Algorithms that approach the entropy limit are "optimal"
@@ -182,14 +187,14 @@ This library implements two complete encoding pipelines:
 
 Understanding the history helps appreciate why these algorithms exist:
 
-| Year | Milestone |
-|------|-----------|
+| Year | Milestone                                                             |
+| ---- | --------------------------------------------------------------------- |
 | 1948 | Shannon publishes information theory — establishes theoretical limits |
-| 1952 | Huffman develops optimal prefix codes (as a term paper!) |
-| 1977 | Lempel & Ziv publish LZ77 — dictionary compression |
-| 1987 | DEFLATE combines LZ77 + Huffman — used in gzip, PNG, ZIP |
-| 1992 | JPEG standard published — lossy compression for photos |
-| 1996 | PNG standard published — lossless alternative to GIF |
+| 1952 | Huffman develops optimal prefix codes (as a term paper!)              |
+| 1977 | Lempel & Ziv publish LZ77 — dictionary compression                    |
+| 1987 | DEFLATE combines LZ77 + Huffman — used in gzip, PNG, ZIP              |
+| 1992 | JPEG standard published — lossy compression for photos                |
+| 1996 | PNG standard published — lossless alternative to GIF                  |
 
 The algorithms in this library represent 70+ years of computer science research, refined into elegant, practical implementations.
 
@@ -199,7 +204,8 @@ The algorithms in this library represent 70+ years of computer science research,
 
 2. **There's no free lunch**: Lossless compression has theoretical limits (entropy). To go smaller, you must lose information.
 
-3. **Different images need different approaches**: 
+3. **Different images need different approaches**:
+
    - Photos → JPEG (lossy OK, natural noise hides artifacts)
    - Screenshots → PNG (sharp edges need lossless)
 

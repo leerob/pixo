@@ -5,12 +5,14 @@ PNG (Portable Network Graphics) is a lossless image format that combines predict
 ## Why PNG?
 
 PNG excels at:
+
 - **Screenshots and UI elements** — Sharp edges stay sharp
 - **Graphics with text** — No blurry letters
 - **Images with transparency** — Full alpha channel support
 - **Diagrams and illustrations** — Solid colors compress well
 
 PNG is **not** ideal for:
+
 - Photographs (use JPEG for smaller files)
 - Animation (use GIF, APNG, or WebP)
 
@@ -56,6 +58,7 @@ transmission errors)
 ```
 
 This signature detects common file transfer issues:
+
 - Binary/text mode confusion (CR/LF changes)
 - 7-bit channel corruption (high bit stripped)
 - File truncation (EOF character)
@@ -86,13 +89,13 @@ Every chunk follows this format:
 pub fn write_chunk(output: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
     // Length (big-endian)
     output.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    
+
     // Type
     output.extend_from_slice(chunk_type);
-    
+
     // Data
     output.extend_from_slice(data);
-    
+
     // CRC (of type + data)
     let crc = crc32(&[chunk_type.as_slice(), data].concat());
     output.extend_from_slice(&crc.to_be_bytes());
@@ -110,15 +113,15 @@ The image header contains essential metadata:
 └─────┴─────┴─────┴─────┴─────┴─────┴─────┘
 ```
 
-| Field | Size | Values |
-|-------|------|--------|
-| Width | 4 bytes | Image width in pixels |
-| Height | 4 bytes | Image height in pixels |
-| Bit Depth | 1 byte | 8 (we support 8-bit only) |
-| Color Type | 1 byte | 0=Gray, 2=RGB, 4=GrayAlpha, 6=RGBA |
-| Compression | 1 byte | 0 (DEFLATE is the only option) |
-| Filter | 1 byte | 0 (adaptive filtering) |
-| Interlace | 1 byte | 0=None, 1=Adam7 |
+| Field       | Size    | Values                             |
+| ----------- | ------- | ---------------------------------- |
+| Width       | 4 bytes | Image width in pixels              |
+| Height      | 4 bytes | Image height in pixels             |
+| Bit Depth   | 1 byte  | 8 (we support 8-bit only)          |
+| Color Type  | 1 byte  | 0=Gray, 2=RGB, 4=GrayAlpha, 6=RGBA |
+| Compression | 1 byte  | 0 (DEFLATE is the only option)     |
+| Filter      | 1 byte  | 0 (adaptive filtering)             |
+| Interlace   | 1 byte  | 0=None, 1=Adam7                    |
 
 ```rust
 // From src/png/mod.rs
@@ -157,13 +160,17 @@ The filtered version has many repeated values → compresses much better!
 PNG defines five filter types (0-4):
 
 #### Filter Type 0: None
+
 No filtering. Raw pixel values.
+
 ```
 Filtered(x) = Original(x)
 ```
 
 #### Filter Type 1: Sub
+
 Difference from left pixel.
+
 ```
 Filtered(x) = Original(x) - Left(x)
 
@@ -184,7 +191,9 @@ fn filter_sub(row: &[u8], bpp: usize, output: &mut Vec<u8>) {
 ```
 
 #### Filter Type 2: Up
+
 Difference from above pixel.
+
 ```
 Filtered(x) = Original(x) - Above(x)
 
@@ -201,7 +210,9 @@ fn filter_up(row: &[u8], prev_row: &[u8], output: &mut Vec<u8>) {
 ```
 
 #### Filter Type 3: Average
+
 Difference from average of left and above.
+
 ```
 Filtered(x) = Original(x) - floor((Left(x) + Above(x)) / 2)
 
@@ -221,6 +232,7 @@ fn filter_average(row: &[u8], prev_row: &[u8], bpp: usize, output: &mut Vec<u8>)
 ```
 
 #### Filter Type 4: Paeth
+
 Uses the Paeth predictor — a clever heuristic developed by Alan W. Paeth.
 
 ```
@@ -231,7 +243,7 @@ Given three neighbors:
 
 Paeth selects the neighbor closest to (A + B - C):
 - If A + B - C is close to A → predict A
-- If A + B - C is close to B → predict B  
+- If A + B - C is close to B → predict B
 - If A + B - C is close to C → predict C
 
 The intuition: (A + B - C) estimates X assuming linear gradients.
@@ -316,6 +328,7 @@ After filtering, each scanline is prefixed with a filter type byte:
 ```
 
 For a 10×3 RGB image:
+
 ```
 Row 0: [Filter byte] [30 bytes of filtered RGB data]
 Row 1: [Filter byte] [30 bytes of filtered RGB data]
@@ -392,6 +405,7 @@ pub enum FilterStrategy {
 ```
 
 **Trade-offs**:
+
 - `None`: Fastest encoding, worst compression
 - `Adaptive`: Best compression, slower encoding
 - Single filter: Middle ground
@@ -418,12 +432,12 @@ What happens internally:
 
 PNG compression effectiveness depends heavily on the image:
 
-| Image Type | Typical Compression |
-|------------|---------------------|
-| Solid color | 99%+ (nearly nothing to store) |
-| Simple graphics | 80-95% |
-| Screenshots | 50-80% |
-| Photographs | 10-30% (use JPEG instead!) |
+| Image Type      | Typical Compression            |
+| --------------- | ------------------------------ |
+| Solid color     | 99%+ (nearly nothing to store) |
+| Simple graphics | 80-95%                         |
+| Screenshots     | 50-80%                         |
+| Photographs     | 10-30% (use JPEG instead!)     |
 
 ## Why Not Just DEFLATE?
 
@@ -450,6 +464,7 @@ With filtering (Sub):
 ## Summary
 
 PNG encoding combines:
+
 - **Clever filtering** that converts pixels to small differences
 - **DEFLATE compression** that eliminates redundancy
 - **Chunk structure** for integrity and metadata
