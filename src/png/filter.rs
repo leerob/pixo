@@ -73,7 +73,8 @@ pub fn apply_filters(
     {
         strategy = FilterStrategy::Sub;
     } else if matches!(strategy, FilterStrategy::AdaptiveFast) && height >= 512 {
-        strategy = FilterStrategy::AdaptiveSampled { interval: 4 };
+        let interval = if height >= 2048 { 8 } else { 4 };
+        strategy = FilterStrategy::AdaptiveSampled { interval };
     }
 
     // Parallel path (only for adaptive; other strategies are trivial)

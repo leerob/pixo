@@ -102,7 +102,7 @@ const LENGTH_LOOKUP: [(u8, u8); 256] = {
 /// Threshold (in tokens) above which we skip fixed-Huffman encoding and go
 /// straight to dynamic codes to avoid double-encoding overhead on large
 /// payloads (common for PNG scanlines).
-const DYNAMIC_ONLY_TOKEN_THRESHOLD: usize = 512;
+const DYNAMIC_ONLY_TOKEN_THRESHOLD: usize = 256;
 /// Below this byte length, favor a simpler path and optionally skip dynamic Huffman.
 const SMALL_INPUT_BYTES: usize = 1 << 10; // 1 KiB
 
