@@ -155,14 +155,49 @@ impl Lz77Compressor {
         tokens.reserve(data.len());
         let mut pos = 0;
         let mut literal_streak = 0usize;
+        let mut incompressible_mode = false;
+        let mut probe_since_last = 0usize;
 
         // Reset hash tables
         self.head.fill(-1);
         self.prev.fill(-1);
 
         while pos < data.len() {
+            if incompressible_mode {
+                // Periodically probe for a match with a very shallow chain to exit early if data changes.
+                if probe_since_last >= INCOMPRESSIBLE_PROBE_INTERVAL {
+                    probe_since_last = 0;
+                    if let Some((length, distance)) =
+                        self.find_best_match(data, pos, INCOMPRESSIBLE_CHAIN_LIMIT)
+                    {
+                        incompressible_mode = false;
+                        literal_streak = 0;
+
+                        tokens.push(Token::Match {
+                            length: length as u16,
+                            distance: distance as u16,
+                        });
+
+                        for i in 0..length {
+                            self.update_hash(data, pos + i);
+                        }
+                        pos += length;
+                        continue;
+                    }
+                }
+
+                // Stay in literal-only fast path
+                tokens.push(Token::Literal(data[pos]));
+                self.update_hash(data, pos);
+                pos += 1;
+                literal_streak = literal_streak.saturating_add(1);
+                probe_since_last = probe_since_last.saturating_add(1);
+                continue;
+            }
+
             let chain_limit = if literal_streak >= INCOMPRESSIBLE_LITERAL_THRESHOLD {
-                // After a long run of literals, assume incompressible and keep chains shallow
+                incompressible_mode = true;
+                probe_since_last = 0;
                 INCOMPRESSIBLE_CHAIN_LIMIT
             } else {
                 self.max_chain_length
@@ -172,6 +207,8 @@ impl Lz77Compressor {
 
             if let Some((length, distance)) = best_match {
                 literal_streak = 0;
+                incompressible_mode = false;
+                probe_since_last = 0;
 
                 // Check for lazy match if enabled, but skip for "good enough" matches
                 // This is a common optimization used by zlib
@@ -203,6 +240,10 @@ impl Lz77Compressor {
                 pos += length;
             } else {
                 literal_streak = literal_streak.saturating_add(1);
+                if literal_streak >= INCOMPRESSIBLE_LITERAL_THRESHOLD {
+                    incompressible_mode = true;
+                    probe_since_last = 0;
+                }
                 tokens.push(Token::Literal(data[pos]));
                 self.update_hash(data, pos);
                 pos += 1;
@@ -230,13 +271,43 @@ impl Lz77Compressor {
         tokens.reserve(data.len());
         let mut pos = 0;
         let mut literal_streak = 0usize;
+        let mut incompressible_mode = false;
+        let mut probe_since_last = 0usize;
 
         // Reset hash tables
         self.head.fill(-1);
         self.prev.fill(-1);
 
         while pos < data.len() {
+            if incompressible_mode {
+                if probe_since_last >= INCOMPRESSIBLE_PROBE_INTERVAL {
+                    probe_since_last = 0;
+                    if let Some((length, distance)) =
+                        self.find_best_match(data, pos, INCOMPRESSIBLE_CHAIN_LIMIT)
+                    {
+                        incompressible_mode = false;
+                        literal_streak = 0;
+
+                        tokens.push(PackedToken::match_(length as u16, distance as u16));
+                        for i in 0..length {
+                            self.update_hash(data, pos + i);
+                        }
+                        pos += length;
+                        continue;
+                    }
+                }
+
+                tokens.push(PackedToken::literal(data[pos]));
+                self.update_hash(data, pos);
+                pos += 1;
+                literal_streak = literal_streak.saturating_add(1);
+                probe_since_last = probe_since_last.saturating_add(1);
+                continue;
+            }
+
             let chain_limit = if literal_streak >= INCOMPRESSIBLE_LITERAL_THRESHOLD {
+                incompressible_mode = true;
+                probe_since_last = 0;
                 INCOMPRESSIBLE_CHAIN_LIMIT
             } else {
                 self.max_chain_length
@@ -246,6 +317,8 @@ impl Lz77Compressor {
 
             if let Some((length, distance)) = best_match {
                 literal_streak = 0;
+                incompressible_mode = false;
+                probe_since_last = 0;
 
                 if self.lazy_matching && length < GOOD_MATCH_LENGTH && pos + 1 < data.len() {
                     self.update_hash(data, pos);
@@ -269,6 +342,10 @@ impl Lz77Compressor {
                 pos += length;
             } else {
                 literal_streak = literal_streak.saturating_add(1);
+                if literal_streak >= INCOMPRESSIBLE_LITERAL_THRESHOLD {
+                    incompressible_mode = true;
+                    probe_since_last = 0;
+                }
                 tokens.push(PackedToken::literal(data[pos]));
                 self.update_hash(data, pos);
                 pos += 1;
@@ -425,6 +502,8 @@ impl Lz77Compressor {
 const INCOMPRESSIBLE_LITERAL_THRESHOLD: usize = 512;
 /// Chain depth to use once incompressible mode triggers.
 const INCOMPRESSIBLE_CHAIN_LIMIT: usize = 1;
+/// Probe interval (bytes) to attempt exiting incompressible mode with a shallow search.
+const INCOMPRESSIBLE_PROBE_INTERVAL: usize = 256;
 
 impl Default for Lz77Compressor {
     fn default() -> Self {
