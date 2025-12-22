@@ -56,6 +56,10 @@ harness = false
 name = "components"
 harness = false
 
+[[bench]]
+name = "size_snapshot"
+harness = false
+
 [profile.release]
 lto = true              # Link-time optimization (merges all code, removes unused)
 opt-level = "z"         # Optimize for size

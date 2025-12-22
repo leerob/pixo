@@ -12,6 +12,7 @@ cargo bench
 cargo bench --bench encode_benchmark  # PNG/JPEG encoding vs image crate
 cargo bench --bench deflate_micro     # DEFLATE compression vs flate2
 cargo bench --bench components        # Component-level benchmarks (DCT, Huffman, etc.)
+cargo bench --bench size_snapshot -- --nocapture  # Quick size/time snapshot vs image crate
 ```
 
 ## Benchmark Suites
