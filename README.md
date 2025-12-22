@@ -44,6 +44,11 @@ let options = PngOptions {
 let png_data = png::encode_with_options(&pixels, 3, 1, ColorType::Rgb, &options).unwrap();
 ```
 
+#### Presets
+
+- **Fast**: `PngOptions::fast()` — lower compression level and faster filter heuristic.
+- **Max compression**: `PngOptions::max_compression()` — highest compression level with full adaptive filtering.
+
 ### JPEG Encoding
 
 ```rust
