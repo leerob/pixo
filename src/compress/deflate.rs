@@ -145,12 +145,12 @@ fn distance_code(distance: u16) -> (u16, u8, u16) {
     } else {
         // For larger distances (512+), use bit manipulation
         // The pattern for distance codes 4+ is:
-        // code = 2 * floor(log2(distance - 1)) - 2 + high_bit
-        // where high_bit is the second-highest bit of (distance - 1)
+        // code = 2 * floor(log2(distance - 1)) + second_highest_bit
+        // where second_highest_bit is the bit below the MSB of (distance - 1)
         let d = distance as u32 - 1;
         let msb = 31 - d.leading_zeros(); // position of highest set bit
         let second_bit = (d >> (msb - 1)) & 1; // second highest bit
-        let code = (2 * msb - 2 + second_bit) as usize;
+        let code = (2 * msb + second_bit) as usize;
         code.min(29)
     };
 
