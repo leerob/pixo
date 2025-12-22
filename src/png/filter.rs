@@ -58,6 +58,7 @@ pub fn apply_filters(
 ) -> Vec<u8> {
     let row_bytes = width as usize * bytes_per_pixel;
     let filtered_row_size = row_bytes + 1; // +1 for filter type byte
+    let zero_row = vec![0u8; row_bytes];
 
     // Parallel path (only for adaptive; other strategies are trivial)
     #[cfg(feature = "parallel")]
@@ -86,7 +87,7 @@ pub fn apply_filters(
         match options.filter_strategy {
             FilterStrategy::AdaptiveSampled { interval } if interval > 1 => {
                 let interval = interval.max(1) as usize;
-                let prev = &prev_row[..];
+                let prev = if y == 0 { &zero_row[..] } else { &prev_row[..] };
                 if y % interval == 0 {
                     let base = output.len();
                     adaptive_filter(
@@ -115,7 +116,7 @@ pub fn apply_filters(
                 let base = output.len();
                 filter_row(
                     row,
-                    &prev_row[..],
+                    if y == 0 { &zero_row[..] } else { &prev_row[..] },
                     bytes_per_pixel,
                     options.filter_strategy,
                     &mut output,
@@ -392,67 +393,25 @@ fn filter_row(
         }
         FilterStrategy::Up => {
             output.push(FILTER_UP);
-            let mut zero = Vec::new();
-            let p = if prev_row.is_empty() {
-                zero.resize(row.len(), 0);
-                &zero[..]
-            } else {
-                prev_row
-            };
-            filter_up(row, p, output);
+            filter_up(row, prev_row, output);
         }
         FilterStrategy::Average => {
             output.push(FILTER_AVERAGE);
-            let mut zero = Vec::new();
-            let p = if prev_row.is_empty() {
-                zero.resize(row.len(), 0);
-                &zero[..]
-            } else {
-                prev_row
-            };
-            filter_average(row, p, bpp, output);
+            filter_average(row, prev_row, bpp, output);
         }
         FilterStrategy::Paeth => {
             output.push(FILTER_PAETH);
-            let mut zero = Vec::new();
-            let p = if prev_row.is_empty() {
-                zero.resize(row.len(), 0);
-                &zero[..]
-            } else {
-                prev_row
-            };
-            filter_paeth(row, p, bpp, output);
+            filter_paeth(row, prev_row, bpp, output);
         }
         FilterStrategy::Adaptive => {
-            let mut zero = Vec::new();
-            let p = if prev_row.is_empty() {
-                zero.resize(row.len(), 0);
-                &zero[..]
-            } else {
-                prev_row
-            };
-            adaptive_filter(row, p, bpp, output, scratch);
+            adaptive_filter(row, prev_row, bpp, output, scratch);
         }
         FilterStrategy::AdaptiveFast => {
-            let mut zero = Vec::new();
-            let p = if prev_row.is_empty() {
-                zero.resize(row.len(), 0);
-                &zero[..]
-            } else {
-                prev_row
-            };
-            adaptive_filter_fast(row, p, bpp, output, scratch);
+            adaptive_filter_fast(row, prev_row, bpp, output, scratch);
         }
         FilterStrategy::AdaptiveSampled { .. } => {
             // Fallback to full adaptive; sampled handling lives in apply_filters loop.
-            let mut zero = Vec::new();
-            let p = if prev_row.is_empty() {
-                zero.resize(row.len(), 0);
-                &zero[..]
-            } else {
-                prev_row
-            };
-            adaptive_filter(row, p, bpp, output, scratch);
+            adaptive_filter(row, prev_row, bpp, output, scratch);
         }
     }
 }
