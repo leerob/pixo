@@ -33,6 +33,26 @@ impl Default for PngOptions {
     }
 }
 
+impl PngOptions {
+    /// Preset optimized for speed. Uses a lower compression level and a faster
+    /// adaptive heuristic to reduce CPU time.
+    pub fn fast() -> Self {
+        Self {
+            compression_level: 3,
+            filter_strategy: FilterStrategy::AdaptiveFast,
+        }
+    }
+
+    /// Preset optimized for compression ratio. Uses maximum compression and full
+    /// adaptive filtering.
+    pub fn max_compression() -> Self {
+        Self {
+            compression_level: 9,
+            filter_strategy: FilterStrategy::Adaptive,
+        }
+    }
+}
+
 /// PNG filter selection strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterStrategy {
