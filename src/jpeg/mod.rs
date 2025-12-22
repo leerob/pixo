@@ -991,6 +991,52 @@ mod tests {
     }
 
     #[test]
+    fn optimize_huffman_should_not_increase_size() {
+        let pixels = generate_gradient(64, 64);
+        let base_opts = JpegOptions {
+            quality: 85,
+            subsampling: Subsampling::S444,
+            restart_interval: None,
+            optimize_huffman: false,
+        };
+        let opt_opts = JpegOptions {
+            optimize_huffman: true,
+            ..base_opts
+        };
+
+        let mut buf_base = Vec::new();
+        encode_with_options_into(
+            &mut buf_base,
+            &pixels,
+            64,
+            64,
+            base_opts.quality,
+            ColorType::Rgb,
+            &base_opts,
+        )
+        .unwrap();
+
+        let mut buf_opt = Vec::new();
+        encode_with_options_into(
+            &mut buf_opt,
+            &pixels,
+            64,
+            64,
+            opt_opts.quality,
+            ColorType::Rgb,
+            &opt_opts,
+        )
+        .unwrap();
+
+        assert!(
+            buf_opt.len() <= buf_base.len(),
+            "optimized Huffman should not increase size: base={} opt={}",
+            buf_base.len(),
+            buf_opt.len()
+        );
+    }
+
+    #[test]
     fn test_encode_8x8_rgb() {
         // 8x8 gradient
         let mut pixels = Vec::with_capacity(8 * 8 * 3);
