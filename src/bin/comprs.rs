@@ -38,7 +38,7 @@ struct Args {
     quality: u8,
 
     /// PNG compression level (1-9, higher = smaller file)
-    #[arg(short = 'c', long, default_value = "6", value_parser = clap::value_parser!(u8).range(1..=9))]
+    #[arg(short = 'c', long, default_value = "2", value_parser = clap::value_parser!(u8).range(1..=9))]
     compression: u8,
 
     /// JPEG chroma subsampling
@@ -46,8 +46,12 @@ struct Args {
     subsampling: SubsamplingArg,
 
     /// PNG filter strategy
-    #[arg(long, value_enum, default_value = "adaptive")]
+    #[arg(long, value_enum, default_value = "adaptivefast")]
     filter: FilterArg,
+
+    /// PNG preset (overrides compression/filter when set)
+    #[arg(long, value_enum)]
+    png_preset: Option<PngPresetArg>,
 
     /// Interval for adaptive-sampled filter (rows between full evaluations)
     #[arg(
@@ -111,6 +115,16 @@ enum FilterArg {
     AdaptiveFast,
     /// Adaptive on sampled rows, reuse chosen filter between samples
     AdaptiveSampled,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum PngPresetArg {
+    /// Fastest settings (level 2, AdaptiveFast)
+    Fast,
+    /// Balanced settings (level 6, Adaptive)
+    Balanced,
+    /// Maximum compression (level 9, AdaptiveSampled interval=2)
+    Max,
 }
 
 impl FilterArg {
@@ -447,10 +461,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut output_data = Vec::new();
     match format {
         OutputFormat::Png => {
-            let options = PngOptions {
-                compression_level: args.compression,
-                filter_strategy: args.filter.to_strategy(args.adaptive_sample_interval),
+            let mut options = match args.png_preset {
+                Some(PngPresetArg::Fast) => PngOptions::fast(),
+                Some(PngPresetArg::Balanced) => PngOptions::balanced(),
+                Some(PngPresetArg::Max) => PngOptions::max_compression(),
+                None => PngOptions {
+                    compression_level: args.compression,
+                    filter_strategy: args.filter.to_strategy(args.adaptive_sample_interval),
+                },
             };
+            // Allow explicit overrides if preset is provided but user also set flags.
+            options.compression_level = args.compression;
+            options.filter_strategy = args.filter.to_strategy(args.adaptive_sample_interval);
+
             comprs::png::encode_into(
                 &mut output_data,
                 &pixels,
