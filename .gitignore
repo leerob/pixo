@@ -53,3 +53,15 @@ $RECYCLE.BIN/
 
 # Test artifacts
 *.orig
+
+# JavaScript / Svelte app artifacts
+node_modules/
+*.log
+.svelte-kit/
+.vite/
+dist/
+build/
+
+# Playwright
+playwright-report/
+test-results/

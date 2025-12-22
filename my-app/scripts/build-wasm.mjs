@@ -1,0 +1,96 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { join, dirname, delimiter } from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const workspaceRoot = join(__dirname, '..', '..');
+const outDir = join(__dirname, '..', 'src', 'lib', 'comprs-wasm');
+const wasmPath = join(workspaceRoot, 'target', 'wasm32-unknown-unknown', 'release', 'comprs.wasm');
+
+function formatError(message) {
+	console.error(`\n[wasm:build] ${message}`);
+	process.exit(1);
+}
+
+function findOnPath(bin) {
+	const paths = (process.env.PATH || '').split(delimiter);
+	for (const p of paths) {
+		const candidate = join(p, bin);
+		if (existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+
+function findCachedWasmBindgen() {
+	const cacheRoot = join(os.homedir(), '.cache', '.wasm-pack');
+	if (!existsSync(cacheRoot)) return null;
+	const entries = readdirSync(cacheRoot, { withFileTypes: true });
+	for (const entry of entries) {
+		if (entry.isDirectory() && entry.name.startsWith('wasm-bindgen-')) {
+			const candidate = join(cacheRoot, entry.name, 'wasm-bindgen');
+			if (existsSync(candidate)) return candidate;
+		}
+	}
+	return null;
+}
+
+function ensureOutDir() {
+	if (!existsSync(outDir)) {
+		mkdirSync(outDir, { recursive: true });
+	}
+}
+
+function findWasmBindgenBinary() {
+	if (process.env.WASM_BINDGEN && existsSync(process.env.WASM_BINDGEN)) {
+		return process.env.WASM_BINDGEN;
+	}
+	const fromPath = findOnPath('wasm-bindgen');
+	if (fromPath) return fromPath;
+	const cached = findCachedWasmBindgen();
+	if (cached) return cached;
+	formatError(
+		'wasm-bindgen binary not found. Install wasm-pack (downloads wasm-bindgen) or install wasm-bindgen-cli and set WASM_BINDGEN to its path.'
+	);
+	return null;
+}
+
+function removeGitIgnore() {
+	const gitignore = join(outDir, '.gitignore');
+	if (existsSync(gitignore)) {
+		unlinkSync(gitignore);
+	}
+}
+
+try {
+	console.log('[wasm:build] Building Rust crate (wasm32-unknown-unknown, release)...');
+	execFileSync(
+		'cargo',
+		['build', '--target', 'wasm32-unknown-unknown', '--release', '--features', 'wasm'],
+		{ cwd: workspaceRoot, stdio: 'inherit' }
+	);
+
+	const bindgen = findWasmBindgenBinary();
+	ensureOutDir();
+
+	console.log('[wasm:build] Running wasm-bindgen...');
+	execFileSync(
+		bindgen,
+		['--target', 'web', '--out-dir', outDir, '--out-name', 'comprs', wasmPath],
+		{ cwd: workspaceRoot, stdio: 'inherit' }
+	);
+
+	removeGitIgnore();
+
+	if (!existsSync(wasmPath) || !existsSync(join(outDir, 'comprs_bg.wasm'))) {
+		formatError('Build finished, but output files are missing.');
+	}
+
+	const wasmSize = statSync(join(outDir, 'comprs_bg.wasm')).size;
+	console.log(`[wasm:build] Done. Emitted ${wasmSize} bytes of wasm to ${outDir}.`);
+} catch (err) {
+	formatError(err instanceof Error ? err.message : String(err));
+}
