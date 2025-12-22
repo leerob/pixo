@@ -104,7 +104,7 @@ const LENGTH_LOOKUP: [(u8, u8); 256] = {
 /// payloads (common for PNG scanlines).
 const DYNAMIC_ONLY_TOKEN_THRESHOLD: usize = 128;
 /// Below this token count, prefer fixed Huffman only to avoid double encoding.
-const FIXED_ONLY_TOKEN_THRESHOLD: usize = 64;
+const FIXED_ONLY_TOKEN_THRESHOLD: usize = 96;
 /// Below this byte length, favor a simpler path and optionally skip dynamic Huffman.
 const SMALL_INPUT_BYTES: usize = 1 << 10; // 1 KiB
 
