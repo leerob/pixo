@@ -88,7 +88,7 @@ pub fn encode_png(
 /// * `height` - Image height in pixels
 /// * `color_type` - Color type: 0=Gray, 1=GrayAlpha, 2=Rgb, 3=Rgba
 /// * `compression_level` - Compression level 1-9 (6 recommended)
-/// * `filter` - Filter strategy: 0=None, 1=Sub, 2=Up, 3=Average, 4=Paeth, 5=Adaptive
+/// * `filter` - Filter strategy: 0=None, 1=Sub, 2=Up, 3=Average, 4=Paeth, 5=Adaptive, 6=AdaptiveFast
 ///
 /// # Returns
 ///
