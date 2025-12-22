@@ -125,8 +125,6 @@ flowchart TB
     Huffman --> JPEGFile
 ```
 
-
-
 ## Project Structure
 
 ```javascript
@@ -158,8 +156,6 @@ comprs/
     ├── png_conformance.rs  # PNG test suite integration
     └── jpeg_conformance.rs # JPEG test suite integration
 ```
-
-
 
 ## Implementation Phases
 
