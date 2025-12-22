@@ -12,7 +12,7 @@ A minimal-dependency, high-performance image compression library written in Rust
 
 ## Toolchain
 
-The test and bench suites currently require **Rust nightly** (e.g., `rustc 1.94.0-nightly`) because transitive dependencies (`aligned` via `image`) opt into `edition2024`. Use `rustup override set nightly` in this workspace to match the CI/tooling expectation.
+The project builds and tests on **stable Rust 1.82+**. Dev-dependencies are pinned to avoid `edition2024` transitive pulls, so no nightly toolchain is required.
 
 ## Installation
 
