@@ -197,6 +197,7 @@ Use the helper script to build and report raw/gzipped sizes (and wasm-opt -Oz if
 # pass extra args to cargo if needed, e.g.:
 # ./scripts/wasm-size.sh --locked
 ```
+Current local size (no wasm-opt): raw 90,473 bytes; gzipped 30,065 bytes.
 
 ### Target metrics
 

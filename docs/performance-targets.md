@@ -3,7 +3,7 @@
 These targets define what “competitive” looks like for comprs across native and WASM builds. They are checkpoints to guide optimizations and regressions.
 
 ## WASM size targets
-- **PNG + JPEG (optimized profile)**: ≤ 95 KB uncompressed (`cargo build --release --target wasm32-unknown-unknown --features wasm` with current size profile). Current measured: **92 KB**.
+- **PNG + JPEG (optimized profile)**: ≤ 95 KB uncompressed (`cargo build --release --target wasm32-unknown-unknown --features wasm` with current size profile). Current measured (local, no wasm-opt): **90,473 bytes raw, 30,065 bytes gzipped**.
 - **After wasm-opt -Oz (if used in pipelines)**: track and hold the gzipped size within ±5% of baseline.
 - **Acceptable regression budget**: Any change that increases the optimized wasm size by >3% requires justification and a size offsetting change or a new baseline.
 
