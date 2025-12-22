@@ -665,6 +665,21 @@ mod tests {
         pixels
     }
 
+    fn generate_noisy(width: u32, height: u32) -> Vec<u8> {
+        let mut pixels = Vec::with_capacity((width * height * 3) as usize);
+        let mut seed = 12345u32;
+        for _ in 0..(width * height) {
+            seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+            let r = (seed >> 16) as u8;
+            seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+            let g = (seed >> 16) as u8;
+            seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+            let b = (seed >> 16) as u8;
+            pixels.extend_from_slice(&[r, g, b]);
+        }
+        pixels
+    }
+
     #[test]
     fn subsampling_420_should_not_be_larger_than_444_for_simple_image() {
         let pixels = generate_gradient(64, 64);
@@ -706,6 +721,52 @@ mod tests {
         assert!(
             buf_420.len() <= buf_444.len(),
             "expected 4:2:0 to be no larger than 4:4:4, got 420={} bytes, 444={} bytes",
+            buf_420.len(),
+            buf_444.len()
+        );
+    }
+
+    #[test]
+    fn subsampling_420_should_not_be_larger_than_444_for_noisy_image() {
+        let pixels = generate_noisy(64, 64);
+        let opts_444 = JpegOptions {
+            quality: 85,
+            subsampling: Subsampling::S444,
+            restart_interval: None,
+        };
+        let opts_420 = JpegOptions {
+            quality: 85,
+            subsampling: Subsampling::S420,
+            restart_interval: None,
+        };
+
+        let mut buf_444 = Vec::new();
+        encode_with_options_into(
+            &mut buf_444,
+            &pixels,
+            64,
+            64,
+            85,
+            ColorType::Rgb,
+            &opts_444,
+        )
+        .unwrap();
+
+        let mut buf_420 = Vec::new();
+        encode_with_options_into(
+            &mut buf_420,
+            &pixels,
+            64,
+            64,
+            85,
+            ColorType::Rgb,
+            &opts_420,
+        )
+        .unwrap();
+
+        assert!(
+            buf_420.len() <= buf_444.len(),
+            "expected 4:2:0 to be no larger than 4:4:4 on noisy image, got 420={} bytes, 444={} bytes",
             buf_420.len(),
             buf_444.len()
         );
