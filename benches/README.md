@@ -201,6 +201,10 @@ Use the helper script to build and report raw/gzipped sizes (and wasm-opt -Oz if
 
 See `docs/performance-targets.md` for the current performance, quality, and size targets we are tracking (including wasm size baselines and regression budgets).
 
+### Baseline snapshot
+
+For a quick sanity check of PNG/JPEG sizes and timings vs the `image` crate, see `benches/size_snapshot_baseline.md` (generated from `cargo bench --bench size_snapshot -- --nocapture`). Rerun on your hardware to track regressions.
+
 ### Comparison to Alternatives
 
 | Library         | WASM Size (uncompressed) |
