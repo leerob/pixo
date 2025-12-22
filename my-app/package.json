@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"wasm:build": "node ./scripts/build-wasm.mjs",
+		"e2e": "node ./scripts/e2e-smoke.mjs",
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",

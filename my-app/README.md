@@ -26,6 +26,7 @@ Then open the printed local URL (default `http://localhost:5173` or the next fre
 - `npm run dev` — start the SvelteKit dev server.
 - `npm run check` — SvelteKit type/syntax checks.
 - `npm run build` — production build.
+- `npm run e2e` — headless Playwright smoke test (requires a dev server running on `http://localhost:4173` or set `BASE_URL`). Uploads `tests/fixtures/playground.png`, compresses, and asserts a download is available.
 
 ## Notes
 - Only PNG and JPEG inputs are supported.

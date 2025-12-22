@@ -7,6 +7,7 @@ node_modules
 .wrangler
 /.svelte-kit
 /build
+playwright-screenshot.png
 
 # OS
 .DS_Store
