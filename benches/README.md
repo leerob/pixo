@@ -186,6 +186,16 @@ For additional size reduction, install `wasm-opt` (from binaryen) and run:
 wasm-opt -Oz -o optimized.wasm target/wasm32-unknown-unknown/release/comprs.wasm
 ```
 
+### WASM size checker
+
+Use the helper script to build and report raw/gzipped sizes (and wasm-opt -Oz if installed):
+
+```bash
+./scripts/wasm-size.sh
+# pass extra args to cargo if needed, e.g.:
+# ./scripts/wasm-size.sh --locked
+```
+
 ### Comparison to Alternatives
 
 | Library         | WASM Size (uncompressed) |
