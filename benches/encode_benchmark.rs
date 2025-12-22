@@ -79,7 +79,7 @@ fn png_encoding_benchmark(c: &mut Criterion) {
                             black_box(pixels),
                             *size,
                             *size,
-                            image::ExtendedColorType::Rgb8,
+                            image::ColorType::Rgb8,
                         )
                         .unwrap();
                     output
@@ -164,7 +164,7 @@ fn jpeg_encoding_benchmark(c: &mut Criterion) {
                             black_box(pixels),
                             *size,
                             *size,
-                            image::ExtendedColorType::Rgb8,
+                            image::ColorType::Rgb8,
                         )
                         .unwrap();
                     output
@@ -230,7 +230,7 @@ fn compression_ratio_benchmark(c: &mut Criterion) {
                         black_box(&gradient),
                         *width,
                         *height,
-                        image::ExtendedColorType::Rgb8,
+                        image::ColorType::Rgb8,
                     )
                     .unwrap();
                 output.len()
@@ -246,7 +246,7 @@ fn compression_ratio_benchmark(c: &mut Criterion) {
                         black_box(&noisy),
                         *width,
                         *height,
-                        image::ExtendedColorType::Rgb8,
+                        image::ColorType::Rgb8,
                     )
                     .unwrap();
                 output.len()
@@ -286,7 +286,7 @@ fn compression_ratio_benchmark(c: &mut Criterion) {
                             black_box(&gradient),
                             *width,
                             *height,
-                            image::ExtendedColorType::Rgb8,
+                            image::ColorType::Rgb8,
                         )
                         .unwrap();
                     output.len()
