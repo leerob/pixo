@@ -205,6 +205,12 @@ See `docs/performance-targets.md` for the current performance, quality, and size
 
 For a quick sanity check of PNG/JPEG sizes and timings vs the `image` crate, see `benches/size_snapshot_baseline.md` (generated from `cargo bench --bench size_snapshot -- --nocapture`). Rerun on your hardware to track regressions.
 
+You can also run and capture the snapshot via:
+
+```bash
+./scripts/size_snapshot.sh -- --nocapture
+```
+
 ### Comparison to Alternatives
 
 | Library         | WASM Size (uncompressed) |
