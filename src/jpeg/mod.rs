@@ -627,8 +627,8 @@ fn extract_mcu_420(
                     let idx = dy * 8 + dx;
                     y_blocks[block_idx][idx] = yc as f32 - 128.0;
 
-                    let cx = dx / 2;
-                    let cy = dy / 2;
+                    let cx = (dx / 2) + bx * 4;
+                    let cy = (dy / 2) + by * 4;
                     let cidx = cy * 8 + cx;
                     cb_block[cidx] += cb as f32;
                     cr_block[cidx] += cr as f32;
@@ -649,6 +649,65 @@ fn extract_mcu_420(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn generate_gradient(width: u32, height: u32) -> Vec<u8> {
+        let mut pixels = Vec::with_capacity((width * height * 3) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let r = ((x * 255) / width) as u8;
+                let g = ((y * 255) / height) as u8;
+                let b = (((x + y) * 127) / (width + height)) as u8;
+                pixels.extend_from_slice(&[r, g, b]);
+            }
+        }
+        pixels
+    }
+
+    #[test]
+    fn subsampling_420_should_not_be_larger_than_444_for_simple_image() {
+        let pixels = generate_gradient(64, 64);
+        let opts_444 = JpegOptions {
+            quality: 85,
+            subsampling: Subsampling::S444,
+            restart_interval: None,
+        };
+        let opts_420 = JpegOptions {
+            quality: 85,
+            subsampling: Subsampling::S420,
+            restart_interval: None,
+        };
+
+        let mut buf_444 = Vec::new();
+        encode_with_options_into(
+            &mut buf_444,
+            &pixels,
+            64,
+            64,
+            85,
+            ColorType::Rgb,
+            &opts_444,
+        )
+        .unwrap();
+
+        let mut buf_420 = Vec::new();
+        encode_with_options_into(
+            &mut buf_420,
+            &pixels,
+            64,
+            64,
+            85,
+            ColorType::Rgb,
+            &opts_420,
+        )
+        .unwrap();
+
+        assert!(
+            buf_420.len() <= buf_444.len(),
+            "expected 4:2:0 to be no larger than 4:4:4, got 420={} bytes, 444={} bytes",
+            buf_420.len(),
+            buf_444.len()
+        );
+    }
 
     #[test]
     fn test_encode_1x1_rgb() {
