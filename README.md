@@ -74,6 +74,13 @@ let jpeg_data = jpeg::encode_with_options(&pixels, 1, 1, 85, ColorType::Rgb, &op
 - **Fast**: `JpegOptions::fast()` — Q=75 with 4:2:0 subsampling.
 - **Max quality**: `JpegOptions::max_quality()` — Q=90 with 4:4:4 subsampling.
 
+### WASM bindings (presets)
+
+When using the `wasm` feature and the provided JS bindings:
+
+- `encodePngFast`, `encodePngMax` — call PNG fast/max presets.
+- `encodeJpegFast`, `encodeJpegMaxQuality` — call JPEG fast/max_quality presets.
+
 ### Buffer reuse (PNG & JPEG)
 
 Both encoders support writing into a caller-provided buffer to avoid repeated allocations when encoding multiple images in a loop:

@@ -129,6 +129,24 @@ pub fn encode_png_with_filter(
         .map_err(|e| JsError::new(&e.to_string()))
 }
 
+/// Encode raw pixel data as PNG using the fast preset.
+#[wasm_bindgen(js_name = "encodePngFast")]
+pub fn encode_png_fast(data: &[u8], width: u32, height: u32, color_type: u8) -> Result<Vec<u8>, JsError> {
+    let color = color_type_from_u8(color_type)?;
+    let options = PngOptions::fast();
+    png::encode_with_options(data, width, height, color, &options)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// Encode raw pixel data as PNG using the max compression preset.
+#[wasm_bindgen(js_name = "encodePngMax")]
+pub fn encode_png_max(data: &[u8], width: u32, height: u32, color_type: u8) -> Result<Vec<u8>, JsError> {
+    let color = color_type_from_u8(color_type)?;
+    let options = PngOptions::max_compression();
+    png::encode_with_options(data, width, height, color, &options)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
 /// Encode raw pixel data as JPEG.
 ///
 /// # Arguments
@@ -174,6 +192,44 @@ pub fn encode_jpeg(
     };
 
     jpeg::encode_with_options(data, width, height, quality, color, &options)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// Encode raw pixel data as JPEG using the fast preset (Q=75, 4:2:0).
+#[wasm_bindgen(js_name = "encodeJpegFast")]
+pub fn encode_jpeg_fast(data: &[u8], width: u32, height: u32, color_type: u8) -> Result<Vec<u8>, JsError> {
+    let color = match color_type {
+        0 => ColorType::Gray,
+        2 => ColorType::Rgb,
+        _ => {
+            return Err(JsError::new(&format!(
+                "Invalid color type for JPEG: {}. Expected 0 (Gray) or 2 (Rgb)",
+                color_type
+            )))
+        }
+    };
+
+    let options = JpegOptions::fast();
+    jpeg::encode_with_options(data, width, height, options.quality, color, &options)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// Encode raw pixel data as JPEG using the max quality preset (Q=90, 4:4:4).
+#[wasm_bindgen(js_name = "encodeJpegMaxQuality")]
+pub fn encode_jpeg_max_quality(data: &[u8], width: u32, height: u32, color_type: u8) -> Result<Vec<u8>, JsError> {
+    let color = match color_type {
+        0 => ColorType::Gray,
+        2 => ColorType::Rgb,
+        _ => {
+            return Err(JsError::new(&format!(
+                "Invalid color type for JPEG: {}. Expected 0 (Gray) or 2 (Rgb)",
+                color_type
+            )))
+        }
+    };
+
+    let options = JpegOptions::max_quality();
+    jpeg::encode_with_options(data, width, height, options.quality, color, &options)
         .map_err(|e| JsError::new(&e.to_string()))
 }
 
