@@ -196,6 +196,10 @@ Use the helper script to build and report raw/gzipped sizes (and wasm-opt -Oz if
 # ./scripts/wasm-size.sh --locked
 ```
 
+### Target metrics
+
+See `docs/performance-targets.md` for the current performance, quality, and size targets we are tracking (including wasm size baselines and regression budgets).
+
 ### Comparison to Alternatives
 
 | Library         | WASM Size (uncompressed) |
