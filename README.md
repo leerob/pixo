@@ -152,6 +152,11 @@ comprs input.jpg -o output.png --filter paeth
 comprs input.jpg -o output.png --filter adaptive-fast
 comprs input.jpg -o output.png --filter adaptive-sampled --adaptive-sample-interval 8
 
+# Use presets (overrides compression/filter or quality/subsampling)
+comprs input.jpg -o output.png --png-preset fast
+comprs input.jpg -o output.jpg --jpeg-preset fast
+comprs input.jpg -o output.jpg --jpeg-preset max-quality
+
 # Convert to grayscale
 comprs color.png -o gray.jpg --grayscale
 

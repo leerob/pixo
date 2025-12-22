@@ -469,11 +469,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Encode
     let encode_start = Instant::now();
     let mut output_data = Vec::new();
+    let mut png_preset_used: Option<&'static str> = None;
+    let mut jpeg_preset_used: Option<&'static str> = None;
     match format {
         OutputFormat::Png => {
             let options = match args.png_preset {
-                Some(PngPresetArg::Fast) => PngOptions::fast(),
-                Some(PngPresetArg::Max) => PngOptions::max_compression(),
+                Some(PngPresetArg::Fast) => {
+                    png_preset_used = Some("fast");
+                    PngOptions::fast()
+                }
+                Some(PngPresetArg::Max) => {
+                    png_preset_used = Some("max");
+                    PngOptions::max_compression()
+                }
                 None => PngOptions {
                     compression_level: args.compression,
                     filter_strategy: args.filter.to_strategy(args.adaptive_sample_interval),
@@ -491,10 +499,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         OutputFormat::Jpeg | OutputFormat::Jpg => {
             let (quality, options) = match args.jpeg_preset {
                 Some(JpegPresetArg::Fast) => {
+                    jpeg_preset_used = Some("fast");
                     let opts = JpegOptions::fast();
                     (opts.quality, opts)
                 }
                 Some(JpegPresetArg::MaxQuality) => {
+                    jpeg_preset_used = Some("max-quality");
                     let opts = JpegOptions::max_quality();
                     (opts.quality, opts)
                 }
@@ -540,10 +550,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             OutputFormat::Png => {
                 eprintln!("  Compression level: {}", args.compression);
                 eprintln!("  Filter: {:?}", args.filter);
+                if let Some(preset) = png_preset_used {
+                    eprintln!("  PNG preset: {}", preset);
+                }
             }
             OutputFormat::Jpeg | OutputFormat::Jpg => {
                 eprintln!("  Quality: {}", args.quality);
                 eprintln!("  Subsampling: {:?}", args.subsampling);
+                if let Some(preset) = jpeg_preset_used {
+                    eprintln!("  JPEG preset: {}", preset);
+                }
             }
         }
         eprintln!("  Encode time: {:.2?}", encode_time);
