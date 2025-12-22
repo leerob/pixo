@@ -261,6 +261,7 @@ dependencies = [
  "flate2",
  "image",
  "jpeg-decoder",
+ "js-sys",
  "png",
  "proptest",
  "rand 0.8.5",
@@ -268,6 +269,7 @@ dependencies = [
  "reqwest",
  "sha2",
  "url",
+ "wasm-bindgen",
 ]
 
 [[package]]

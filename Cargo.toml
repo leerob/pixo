@@ -11,6 +11,7 @@ categories = ["compression", "encoding", "multimedia::images"]
 [lib]
 name = "comprs"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "comprs"
@@ -22,12 +23,15 @@ default = []
 simd = []
 parallel = ["rayon"]
 cli = ["clap", "png", "jpeg-decoder"]
+wasm = ["wasm-bindgen", "js-sys"]
 
 [dependencies]
 rayon = { version = "1.10", optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }
 png = { version = "0.17", optional = true }
 jpeg-decoder = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

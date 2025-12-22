@@ -13,6 +13,7 @@
 //! - **JPEG encoding** with DCT, quantization, and Huffman coding
 //! - Optional SIMD acceleration via `simd` feature
 //! - Optional parallel processing via `parallel` feature
+//! - Optional WebAssembly bindings via `wasm` feature
 //! - Buffer reuse helpers: `png::encode_into` and
 //!   `jpeg::encode_with_options_into` let you supply the output buffer to
 //!   avoid repeated allocations when encoding multiple images.
@@ -31,8 +32,8 @@
 //! let jpeg_data = jpeg::encode(&rgb_pixels, 1, 1, 85).unwrap();
 //! ```
 
-// Allow unsafe code only when SIMD feature is enabled (required for intrinsics)
-#![cfg_attr(not(feature = "simd"), forbid(unsafe_code))]
+// Allow unsafe code only when SIMD or WASM feature is enabled
+#![cfg_attr(not(any(feature = "simd", feature = "wasm")), forbid(unsafe_code))]
 #![warn(missing_docs)]
 
 pub mod bits;
@@ -44,6 +45,9 @@ pub mod png;
 
 #[cfg(feature = "simd")]
 pub mod simd;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 pub use color::ColorType;
 pub use error::{Error, Result};
