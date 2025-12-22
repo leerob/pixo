@@ -197,6 +197,19 @@ function detectAlpha(data: Uint8ClampedArray) {
 		jobs = [];
 	}
 
+	function clearCompleted() {
+		const keep = [];
+		for (const job of jobs) {
+			if (job.result) {
+				URL.revokeObjectURL(job.originalUrl);
+				if (job.result.url) URL.revokeObjectURL(job.result.url);
+			} else {
+				keep.push(job);
+			}
+		}
+		jobs = keep;
+	}
+
 	onDestroy(() => {
 		revokeAll();
 	});
@@ -376,6 +389,14 @@ function detectAlpha(data: Uint8ClampedArray) {
 					<p class="text-base font-semibold text-emerald-300">{formatSavings(totalSavingsPct)}</p>
 				</div>
 			</div>
+			<button
+				class="btn-ghost text-xs"
+				on:click={clearCompleted}
+				aria-label="Clear completed jobs"
+				disabled={!completedJobs.length}
+			>
+				Clear completed
+			</button>
 		</section>
 	{/if}
 
