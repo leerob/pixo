@@ -627,6 +627,8 @@ fn extract_mcu_420(
                     let idx = dy * 8 + dx;
                     y_blocks[block_idx][idx] = yc as f32 - 128.0;
 
+                    // Map 16x16 luma to 8x8 chroma: each 8x8 luma block contributes
+                    // a 4x4 chroma region. Offset cx/cy by block coordinates.
                     let cx = (dx / 2) + bx * 4;
                     let cy = (dy / 2) + by * 4;
                     let cidx = cy * 8 + cx;
