@@ -157,6 +157,7 @@ impl Lz77Compressor {
         let mut literal_streak = 0usize;
         let mut incompressible_mode = false;
         let mut probe_since_last = 0usize;
+        let mut incompressible_updates = 0usize;
 
         // Reset hash tables
         self.head.fill(-1);
@@ -188,7 +189,11 @@ impl Lz77Compressor {
 
                 // Stay in literal-only fast path
                 tokens.push(Token::Literal(data[pos]));
-                self.update_hash(data, pos);
+                incompressible_updates += 1;
+                if incompressible_updates >= INCOMPRESSIBLE_UPDATE_INTERVAL {
+                    self.update_hash(data, pos);
+                    incompressible_updates = 0;
+                }
                 pos += 1;
                 literal_streak = literal_streak.saturating_add(1);
                 probe_since_last = probe_since_last.saturating_add(1);
@@ -243,6 +248,7 @@ impl Lz77Compressor {
                 if literal_streak >= INCOMPRESSIBLE_LITERAL_THRESHOLD {
                     incompressible_mode = true;
                     probe_since_last = 0;
+                    incompressible_updates = 0;
                 }
                 tokens.push(Token::Literal(data[pos]));
                 self.update_hash(data, pos);
@@ -273,6 +279,7 @@ impl Lz77Compressor {
         let mut literal_streak = 0usize;
         let mut incompressible_mode = false;
         let mut probe_since_last = 0usize;
+        let mut incompressible_updates = 0usize;
 
         // Reset hash tables
         self.head.fill(-1);
@@ -298,7 +305,11 @@ impl Lz77Compressor {
                 }
 
                 tokens.push(PackedToken::literal(data[pos]));
-                self.update_hash(data, pos);
+                incompressible_updates += 1;
+                if incompressible_updates >= INCOMPRESSIBLE_UPDATE_INTERVAL {
+                    self.update_hash(data, pos);
+                    incompressible_updates = 0;
+                }
                 pos += 1;
                 literal_streak = literal_streak.saturating_add(1);
                 probe_since_last = probe_since_last.saturating_add(1);
@@ -345,6 +356,7 @@ impl Lz77Compressor {
                 if literal_streak >= INCOMPRESSIBLE_LITERAL_THRESHOLD {
                     incompressible_mode = true;
                     probe_since_last = 0;
+                    incompressible_updates = 0;
                 }
                 tokens.push(PackedToken::literal(data[pos]));
                 self.update_hash(data, pos);
@@ -504,6 +516,9 @@ const INCOMPRESSIBLE_LITERAL_THRESHOLD: usize = 512;
 const INCOMPRESSIBLE_CHAIN_LIMIT: usize = 1;
 /// Probe interval (bytes) to attempt exiting incompressible mode with a shallow search.
 const INCOMPRESSIBLE_PROBE_INTERVAL: usize = 256;
+/// How often to update the hash tables while in incompressible mode (to keep some recency without
+/// paying per-byte cost).
+const INCOMPRESSIBLE_UPDATE_INTERVAL: usize = 64;
 
 impl Default for Lz77Compressor {
     fn default() -> Self {
