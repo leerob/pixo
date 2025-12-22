@@ -38,6 +38,7 @@
 	let dropActive = false;
 	let busy = false;
 	let notices: { id: string; message: string; tone: 'info' | 'warning' | 'error' }[] = [];
+	const fileInputId = 'file-input';
 
 	const filterOptions: { label: string; value: PngFilter; hint?: string }[] = [
 		{ label: 'Adaptive', value: 'adaptive', hint: 'Best compression' },
@@ -123,6 +124,11 @@ function detectAlpha(data: Uint8ClampedArray) {
 
 	function dismissNotice(id: string) {
 		notices = notices.filter((n) => n.id !== id);
+	}
+
+	function triggerFilePicker() {
+		const input = document.getElementById(fileInputId) as HTMLInputElement | null;
+		if (input) input.click();
 	}
 
 	function resetInput(event: Event) {
@@ -326,12 +332,12 @@ function detectAlpha(data: Uint8ClampedArray) {
 				<label
 					class="btn-primary cursor-pointer"
 					aria-label="Select PNG or JPEG files"
-					for="file-input"
+					for={fileInputId}
 				>
 					Upload files
 				</label>
 				<input
-					id="file-input"
+					id={fileInputId}
 					type="file"
 					accept="image/png,image/jpeg"
 					multiple
@@ -345,15 +351,22 @@ function detectAlpha(data: Uint8ClampedArray) {
 			</div>
 		</div>
 
-		<div
-			class={`mt-4 grid gap-4 rounded-2xl border-2 border-dashed p-6 transition-colors ${
+		<button
+			type="button"
+			class={`mt-4 grid w-full gap-4 rounded-2xl border-2 border-dashed p-6 text-left transition-colors ${
 				dropActive ? 'border-sky-400/80 bg-sky-500/5' : 'border-slate-800 bg-slate-900/50'
 			}`}
-			role="region"
 			aria-label="Image drop zone"
 			on:drop|preventDefault={onDrop}
 			on:dragover={onDragOver}
 			on:dragleave={onDragLeave}
+			on:keydown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					triggerFilePicker();
+				}
+			}}
+			on:click={() => triggerFilePicker()}
 		>
 			<div class="flex flex-col items-center justify-center gap-2 text-center text-slate-300">
 				<p class="text-lg font-semibold text-slate-100">Drag & drop images here</p>
@@ -364,7 +377,7 @@ function detectAlpha(data: Uint8ClampedArray) {
 					<span class="rounded-full border border-slate-700 px-3 py-1">Preview slider</span>
 				</div>
 			</div>
-		</div>
+		</button>
 	</section>
 
 	{#if completedJobs.length > 0}
