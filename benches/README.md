@@ -214,6 +214,13 @@ You can also run and capture the snapshot via:
 
 For preset throughput baselines, see `benches/preset_compare_baseline.md` and rerun on your hardware (`cargo bench --bench preset_compare -- --sample-size 20`, or `--sample-size 10` for quicker runs).
 
+Or use the helper script (logs to `target/preset_compare.log`):
+
+```bash
+./scripts/preset_compare.sh
+# pass extra args after -- to override defaults
+```
+
 ### Comparison to Alternatives
 
 | Library         | WASM Size (uncompressed) |
