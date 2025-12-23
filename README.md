@@ -40,6 +40,12 @@ use comprs::png::{PngOptions, FilterStrategy};
 let options = PngOptions {
     compression_level: 9,  // validated: 1-9, higher = better compression
     filter_strategy: FilterStrategy::Adaptive,
+    // Optional: palette quantization (lossy). Off by default.
+    quantization: QuantizationOptions {
+        mode: QuantizationMode::Force, // Off | Auto | Force
+        max_colors: 256,
+        dithering: false,
+    },
 };
 let png_data = png::encode_with_options(&pixels, 3, 1, ColorType::Rgb, &options).unwrap();
 ```
@@ -152,6 +158,9 @@ comprs input.png -o output.jpg -v
 | `-c, --compression` | PNG compression level (1-9)                                      | 6                          |
 | `--subsampling`     | JPEG chroma subsampling (`s444`, `s420`)                         | s444                       |
 | `--filter`          | PNG filter (`none`, `sub`, `up`, `average`, `paeth`, `adaptive`, `adaptive-fast`, `adaptive-sampled`) | adaptive                   |
+| `--quantize`        | PNG quantization (`off`, `auto`, `force`)                         | off                        |
+| `--max-colors`      | Palette size when quantizing (1-256)                              | 256                        |
+| `--dither`          | Enable dithering when quantizing                                   | false                      |
 | `--adaptive-sample-interval` | Rows between full adaptive evaluations when using `adaptive-sampled` | 4 |
 | `--grayscale`       | Convert to grayscale                                             | false                      |
 | `-v, --verbose`     | Show detailed output                                             | false                      |
@@ -273,6 +282,7 @@ Note: tests and benches are validated on nightly toolchain; ensure `rustup overr
 ### Performance defaults (PNG)
 - Default compression level: **2** (favor speed)
 - Default filter strategy: **AdaptiveFast**, with height-aware sampling on tall images
+- Quantization: **off** by default (lossless). Enable via `QuantizationOptions` or CLI `--quantize`.
 - SIMD + parallel enabled by default
 - Small inputs: prefer fixed Huffman (token thresholds tuned to avoid double encoding)
 

@@ -22,10 +22,20 @@
 //!
 //! ```rust
 //! use comprs::{png, jpeg, ColorType};
+//! use comprs::png::{FilterStrategy, QuantizationMode, QuantizationOptions};
 //!
-//! // Encode as PNG
+//! // Encode as PNG (lossless or quantized)
 //! let pixels: Vec<u8> = vec![255, 0, 0, 255]; // 1x1 red RGBA pixel
-//! let png_data = png::encode(&pixels, 1, 1, ColorType::Rgba).unwrap();
+//! let mut opts = png::PngOptions::default();
+//! opts.compression_level = 9;
+//! opts.filter_strategy = FilterStrategy::Adaptive;
+//! // Optional: quantize to palette (lossy, smaller)
+//! opts.quantization = QuantizationOptions {
+//!     mode: QuantizationMode::Force,
+//!     max_colors: 256,
+//!     dithering: false,
+//! };
+//! let png_data = png::encode_with_options(&pixels, 1, 1, ColorType::Rgba, &opts).unwrap();
 //!
 //! // Encode as JPEG
 //! let rgb_pixels: Vec<u8> = vec![255, 0, 0]; // 1x1 red RGB pixel
