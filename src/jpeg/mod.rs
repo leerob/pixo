@@ -628,8 +628,12 @@ fn extract_mcu_420(
                     let idx = dy * 8 + dx;
                     y_blocks[block_idx][idx] = yc as f32 - 128.0;
 
-                    let cx = dx / 2;
-                    let cy = dy / 2;
+                    // Calculate global position within the 16x16 MCU
+                    let global_x = bx * 8 + dx;
+                    let global_y = by * 8 + dy;
+                    // Chroma is subsampled 2:1 in each dimension
+                    let cx = global_x / 2;
+                    let cy = global_y / 2;
                     let cidx = cy * 8 + cx;
                     cb_block[cidx] += cb as f32;
                     cr_block[cidx] += cr as f32;
