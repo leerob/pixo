@@ -30,12 +30,13 @@ use image::{DynamicImage, GenericImageView, ImageEncoder};
 
 const DEFAULT_FIXTURES: &str = "tests/fixtures";
 const DEFAULT_OXIPNG: &str = "vendor/oxipng/target/release/oxipng";
-const DEFAULT_CJPEG: &str = "vendor/mozjpeg/cjpeg";
+const DEFAULT_CJPEG_BUILD: &str = "vendor/mozjpeg/build/cjpeg";
+const DEFAULT_CJPEG_FALLBACK: &str = "vendor/mozjpeg/cjpeg";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fixtures_dir = env::var("FIXTURES").unwrap_or_else(|_| DEFAULT_FIXTURES.to_string());
     let oxipng_bin = env::var("OXIPNG_BIN").unwrap_or_else(|_| DEFAULT_OXIPNG.to_string());
-    let cjpeg_bin = env::var("MOZJPEG_CJPEG").unwrap_or_else(|_| DEFAULT_CJPEG.to_string());
+    let cjpeg_bin = env::var("MOZJPEG_CJPEG").unwrap_or_else(|_| pick_cjpeg().to_string());
 
     let fixtures = collect_fixtures(Path::new(&fixtures_dir))?;
     if fixtures.is_empty() {
@@ -71,6 +72,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn pick_cjpeg() -> &'static str {
+    if Path::new(DEFAULT_CJPEG_BUILD).exists() {
+        DEFAULT_CJPEG_BUILD
+    } else {
+        DEFAULT_CJPEG_FALLBACK
+    }
 }
 
 fn collect_fixtures(root: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
