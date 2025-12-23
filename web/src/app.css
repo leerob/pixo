@@ -27,6 +27,10 @@
 	color-scheme: dark;
 }
 
+html {
+	@apply bg-surface-1;
+}
+
 html, body {
 	@apply overflow-x-hidden;
 }
