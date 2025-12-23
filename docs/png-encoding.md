@@ -400,13 +400,17 @@ pub enum FilterStrategy {
     Up,       // Always use Up filter
     Average,  // Always use Average filter
     Paeth,    // Always use Paeth filter
+    Entropy,  // Choose best per row using entropy scoring
     Adaptive, // Choose best per row (best compression)
+    AdaptiveFast, // Adaptive with early cuts and reduced scoring
+    AdaptiveSampled { interval: u32 }, // Adaptive on sampled rows
 }
 ```
 
 **Trade-offs**:
 
 - `None`: Fastest encoding, worst compression
+- `Entropy`: Higher compression than sum-of-abs scoring, slower
 - `Adaptive`: Best compression, slower encoding
 - Single filter: Middle ground
 
@@ -466,9 +470,11 @@ With filtering (Sub):
 PNG encoding combines:
 
 - **Clever filtering** that converts pixels to small differences
+- Optional **entropy-based filtering** for maximum compression at higher CPU cost
 - **DEFLATE compression** that eliminates redundancy
 - **Chunk structure** for integrity and metadata
 - **Adaptive selection** for optimal per-row filtering
+- Optional **alpha optimization**, **color-type reduction**, and **metadata stripping** to shave bytes safely when enabled
 
 This pipeline achieves excellent lossless compression while remaining simple to implement and decode.
 
