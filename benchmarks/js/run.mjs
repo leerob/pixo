@@ -49,6 +49,7 @@ const libraryConfigs = [
     formats: ["png", "jpeg"],
     factory: createSquooshEncoders,
     iterationsOverride: 2, // squoosh spins up WASM; keep iterations short
+    skip: "Node 22: global navigator is read-only; use older Node or browser",
   },
   {
     name: "browser-image-compression",
@@ -391,10 +392,27 @@ async function measureEncoder(fn, iterations) {
 }
 
 async function importOptional(name) {
+  let restoreNavigator = null;
+  if (name === "@squoosh/lib") {
+    const desc = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    if (desc && desc.configurable) {
+      // Some Node versions expose navigator as read-only getter; replace temporarily.
+      restoreNavigator = () => {
+        Object.defineProperty(globalThis, "navigator", desc);
+      };
+      delete globalThis.navigator;
+      Object.defineProperty(globalThis, "navigator", {
+        value: { userAgent: "node" },
+        configurable: true,
+      });
+    }
+  }
   try {
     const module = await import(name);
+    if (restoreNavigator) restoreNavigator();
     return { ok: true, module };
   } catch (error) {
+    if (restoreNavigator) restoreNavigator();
     return { ok: false, error };
   }
 }

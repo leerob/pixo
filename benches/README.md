@@ -123,7 +123,7 @@ pnpm bench:quick -- --output /tmp/js-bench.json   # QUICK=1, small iteration cou
 pnpm bench -- --output /tmp/js-bench.json         # default iterations=6, override with BENCH_ITERATIONS
 ```
 - Results include speed, output sizes, and package sizes for sharp, jimp, pngjs, jpeg-js.
-- `browser-image-compression` is skipped (browser-only). `@squoosh/lib` currently errors on Node 22 due to a read-only global `navigator`; captured as `status=error`.
+- `browser-image-compression` is skipped (browser-only). `@squoosh/lib` is skipped on Node 22 because the global `navigator` is read-only; use an older Node or browser env for squoosh.
 
 3) **Aggregate + rankings**:
 ```bash
