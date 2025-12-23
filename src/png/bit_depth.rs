@@ -1,6 +1,6 @@
 //! Bit-depth reduction utilities for PNG.
 //!
-//! Supports lossless reduction from 8-bit to 1/2/4-bit for grayscale and indexed images
+//! Supports lossless reduction from 8-bit to 1/2/4-bit for grayscale and palette images
 //! when all samples fit in the smaller range.
 
 use crate::color::ColorType;
@@ -12,6 +12,21 @@ pub fn reduce_bit_depth(data: &[u8], color_type: ColorType) -> Option<u8> {
     match color_type {
         ColorType::Gray => reduce_gray_bit_depth(data),
         _ => None,
+    }
+}
+
+/// Determine bit depth for a palette of given length.
+pub fn palette_bit_depth(len: usize) -> u8 {
+    if len == 0 {
+        8
+    } else if len <= 2 {
+        1
+    } else if len <= 4 {
+        2
+    } else if len <= 16 {
+        4
+    } else {
+        8
     }
 }
 

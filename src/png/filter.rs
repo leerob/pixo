@@ -127,7 +127,8 @@ pub fn apply_filters(
 
     for y in 0..height as usize {
         let row_start = y * row_bytes;
-        let row = &data[row_start..row_start + row_bytes];
+        let end = (row_start + row_bytes).min(data.len());
+        let row = &data[row_start..end];
         match strategy {
             FilterStrategy::AdaptiveSampled { interval } if interval > 1 => {
                 let interval = interval.max(1) as usize;

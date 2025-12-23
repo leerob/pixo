@@ -11,7 +11,7 @@ use crate::compress::deflate::deflate_zlib_packed;
 #[cfg(feature = "timing")]
 use crate::compress::deflate::{deflate_zlib_packed_with_stats, DeflateStats};
 use crate::error::{Error, Result};
-// bit_depth module reserved for future bit-depth reductions.
+use bit_depth::{pack_bits, pack_gray, pack_indexed, palette_bit_depth, reduce_bit_depth};
 
 /// PNG file signature (magic bytes).
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
@@ -446,12 +446,19 @@ fn maybe_reduce_color_type<'a>(
     // Palette reduction takes priority if enabled and possible
     if options.reduce_palette {
         if let Some((indexed, palette)) = build_palette(data, color_type, width, height) {
+            let bit_depth = palette_bit_depth(palette.len());
+            let packed = if bit_depth < 8 {
+                pack_indexed(&indexed, bit_depth)
+            } else {
+                indexed
+            };
+            let bytes_per_pixel = ((bit_depth as usize + 7) / 8).max(1);
             return ReducedImage {
-                data: std::borrow::Cow::Owned(indexed),
+                data: std::borrow::Cow::Owned(packed),
                 effective_color_type: ColorType::Rgb, // For optimize_alpha logic (unused for palette)
                 color_type_byte: 3,
-                bit_depth: 8,
-                bytes_per_pixel: 1,
+                bit_depth,
+                bytes_per_pixel,
                 palette: Some(palette),
             };
         }
@@ -475,12 +482,19 @@ fn maybe_reduce_color_type<'a>(
                 for chunk in data.chunks_exact(3) {
                     gray.push(chunk[0]);
                 }
+                let bit_depth = reduce_bit_depth(&gray, ColorType::Gray).unwrap_or(8);
+                let packed = if bit_depth < 8 {
+                    pack_gray(&gray, bit_depth)
+                } else {
+                    gray
+                };
+                let bytes_per_pixel = ((bit_depth as usize + 7) / 8).max(1);
                 ReducedImage {
-                    data: std::borrow::Cow::Owned(gray),
+                    data: std::borrow::Cow::Owned(packed),
                     effective_color_type: ColorType::Gray,
                     color_type_byte: ColorType::Gray.png_color_type(),
-                    bit_depth: 8,
-                    bytes_per_pixel: 1,
+                    bit_depth,
+                    bytes_per_pixel,
                     palette: None,
                 }
             } else {
@@ -501,12 +515,19 @@ fn maybe_reduce_color_type<'a>(
                 for chunk in data.chunks_exact(4) {
                     gray.push(chunk[0]);
                 }
+                let bit_depth = reduce_bit_depth(&gray, ColorType::Gray).unwrap_or(8);
+                let packed = if bit_depth < 8 {
+                    pack_gray(&gray, bit_depth)
+                } else {
+                    gray
+                };
+                let bytes_per_pixel = ((bit_depth as usize + 7) / 8).max(1);
                 ReducedImage {
-                    data: std::borrow::Cow::Owned(gray),
+                    data: std::borrow::Cow::Owned(packed),
                     effective_color_type: ColorType::Gray,
                     color_type_byte: ColorType::Gray.png_color_type(),
-                    bit_depth: 8,
-                    bytes_per_pixel: 1,
+                    bit_depth,
+                    bytes_per_pixel,
                     palette: None,
                 }
             } else if all_opaque {
@@ -845,8 +866,8 @@ mod tests {
         let png = encode_with_options(&pixels, 2, 1, ColorType::Rgba, &opts).unwrap();
         // Color type byte in IHDR should be 3 (palette)
         assert_eq!(png[25], 3);
-        // Bit depth should remain 8 (no bit packing yet)
-        assert_eq!(png[24], 8);
+        // Bit depth should reflect palette size (2 colors -> 1 bit)
+        assert_eq!(png[24], 1);
         assert!(png.windows(4).any(|w| w == b"PLTE"));
     }
 
