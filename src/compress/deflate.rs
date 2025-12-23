@@ -4,7 +4,7 @@
 
 use crate::bits::BitWriter64;
 use crate::compress::lz77::{
-    Lz77Compressor, PackedToken, Token, MAX_MATCH_LENGTH, MIN_MATCH_LENGTH,
+    CostModel, Lz77Compressor, PackedToken, Token, MAX_MATCH_LENGTH, MIN_MATCH_LENGTH,
 };
 use crate::compress::{adler32::adler32, huffman};
 use std::cell::RefCell;
@@ -295,6 +295,587 @@ pub fn deflate_packed(data: &[u8], level: u8) -> Vec<u8> {
     } else {
         with_reusable_deflater(level, |deflater| deflater.compress_packed(data))
     }
+}
+
+// ============================================================================
+// Optimal DEFLATE with Iterative Huffman Refinement (Zopfli-style)
+// ============================================================================
+
+/// Default number of iterations for optimal DEFLATE compression.
+/// Zopfli uses 15 by default; we use fewer for a balance of compression vs speed.
+const DEFAULT_OPTIMAL_ITERATIONS: usize = 5;
+
+/// Compress data using optimal DEFLATE with iterative Huffman refinement.
+///
+/// This implements the core Zopfli technique:
+/// 1. Initial greedy LZ77 pass to get baseline statistics
+/// 2. Compute bit costs from symbol frequencies (entropy)
+/// 3. Re-parse using optimal LZ77 with the cost model
+/// 4. Iterate steps 2-3 until convergence or max iterations
+/// 5. Return the smallest result
+///
+/// This produces significantly better compression than greedy parsing,
+/// at the cost of much slower encoding.
+pub fn deflate_optimal(data: &[u8], iterations: usize) -> Vec<u8> {
+    if data.is_empty() {
+        let mut writer = BitWriter64::with_capacity(16);
+        writer.write_bits(1, 1); // BFINAL = 1
+        writer.write_bits(1, 2); // BTYPE = 01 (fixed Huffman)
+        let lit_codes = huffman::fixed_literal_codes();
+        let code = lit_codes[256];
+        writer.write_bits(reverse_bits(code.code, code.length), code.length);
+        return writer.finish();
+    }
+
+    let mut lz77 = Lz77Compressor::new(9); // Use max chain length for optimal parsing
+
+    // Initial greedy pass for baseline statistics
+    let initial_tokens = lz77.compress(data);
+    let (mut lit_len_counts, mut dist_counts) = count_symbols(&initial_tokens);
+
+    // Encode initial result
+    let est_bytes = estimated_deflate_size(data.len(), 9);
+    let mut best_output = encode_dynamic_huffman_with_capacity(&initial_tokens, est_bytes);
+    let mut best_size = best_output.len();
+
+    // Track previous cost for convergence detection
+    let mut prev_cost = f32::MAX;
+
+    for iter in 0..iterations {
+        // Create cost model from current statistics
+        let cost_model = CostModel::from_statistics(&lit_len_counts, &dist_counts);
+
+        // Re-parse with optimal LZ77 using the cost model
+        let tokens = lz77.compress_optimal(data, &cost_model);
+
+        // Encode and check size
+        let output = encode_dynamic_huffman_with_capacity(&tokens, est_bytes);
+        if output.len() < best_size {
+            best_size = output.len();
+            best_output = output;
+        }
+
+        // Update statistics for next iteration
+        let (new_lit_counts, new_dist_counts) = count_symbols(&tokens);
+
+        // Check for convergence: if cost hasn't improved much, we're done
+        let cost: f32 = tokens
+            .iter()
+            .map(|t| match t {
+                Token::Literal(b) => cost_model.literal_cost(*b),
+                Token::Match { length, distance } => cost_model.match_cost(*length, *distance),
+            })
+            .sum();
+
+        if iter > 2 && (prev_cost - cost).abs() < cost * 0.001 {
+            // Converged
+            break;
+        }
+        prev_cost = cost;
+
+        // Blend new stats with old stats for smoother convergence (Zopfli trick)
+        for i in 0..286 {
+            lit_len_counts[i] = (lit_len_counts[i] as f32 * 0.5 + new_lit_counts[i] as f32) as u32;
+        }
+        for i in 0..30 {
+            dist_counts[i] = (dist_counts[i] as f32 * 0.5 + new_dist_counts[i] as f32) as u32;
+        }
+    }
+
+    best_output
+}
+
+/// Compress data using optimal DEFLATE with default iteration count.
+pub fn deflate_optimal_default(data: &[u8]) -> Vec<u8> {
+    deflate_optimal(data, DEFAULT_OPTIMAL_ITERATIONS)
+}
+
+/// Maximum data size (in bytes) for which block splitting is attempted.
+/// Block splitting has O(n²) cost estimation, so we skip it for very large inputs.
+const BLOCK_SPLIT_SIZE_LIMIT: usize = 512 * 1024; // 512KB
+
+/// Compress data using optimal DEFLATE and wrap in zlib container.
+/// Uses adaptive block splitting for improved compression on smaller inputs.
+pub fn deflate_optimal_zlib(data: &[u8], iterations: usize) -> Vec<u8> {
+    // Skip block splitting for very large inputs to avoid O(n²) cost
+    if data.len() > BLOCK_SPLIT_SIZE_LIMIT {
+        // Use optimal DEFLATE without block splitting
+        let deflated = deflate_optimal(data, iterations);
+        let use_stored = should_use_stored(data.len(), deflated.len());
+
+        let mut output = Vec::with_capacity(deflated.len().min(data.len()) + 32);
+        output.extend_from_slice(&zlib_header(9));
+
+        if use_stored {
+            let stored_blocks = deflate_stored(data);
+            output.extend_from_slice(&stored_blocks);
+        } else {
+            output.extend_from_slice(&deflated);
+        }
+
+        output.extend_from_slice(&adler32(data).to_be_bytes());
+        return output;
+    }
+
+    // Use block splitting for smaller inputs where the overhead is acceptable
+    deflate_optimal_split_zlib(data, iterations, DEFAULT_MAX_BLOCKS)
+}
+
+/// Count symbol frequencies from a token stream.
+fn count_symbols(tokens: &[Token]) -> ([u32; 286], [u32; 30]) {
+    let mut lit_len_counts = [0u32; 286];
+    let mut dist_counts = [0u32; 30];
+
+    for token in tokens {
+        match *token {
+            Token::Literal(b) => {
+                lit_len_counts[b as usize] += 1;
+            }
+            Token::Match { length, distance } => {
+                let (len_symbol, _, _) = length_code(length);
+                lit_len_counts[len_symbol as usize] += 1;
+
+                let (dist_symbol, _, _) = distance_code(distance);
+                dist_counts[dist_symbol as usize] += 1;
+            }
+        }
+    }
+    // End of block
+    lit_len_counts[256] += 1;
+
+    // Ensure at least one distance code per spec
+    if dist_counts.iter().all(|&f| f == 0) {
+        dist_counts[0] = 1;
+    }
+
+    (lit_len_counts, dist_counts)
+}
+
+// ============================================================================
+// Adaptive Block Splitting (Zopfli-style)
+// ============================================================================
+
+/// Overhead in bits for a dynamic Huffman block header.
+/// This includes the tree encoding (~200-400 bits typically).
+const BLOCK_HEADER_OVERHEAD_BITS: f64 = 300.0;
+
+/// Minimum block size in tokens to consider splitting.
+const MIN_BLOCK_SIZE: usize = 10;
+
+/// Maximum number of blocks to split into.
+const DEFAULT_MAX_BLOCKS: usize = 15;
+
+/// Count symbol frequencies for a slice of tokens.
+fn count_symbols_range(tokens: &[Token], start: usize, end: usize) -> ([u32; 286], [u32; 30]) {
+    let mut lit_len_counts = [0u32; 286];
+    let mut dist_counts = [0u32; 30];
+
+    for token in &tokens[start..end] {
+        match *token {
+            Token::Literal(b) => {
+                lit_len_counts[b as usize] += 1;
+            }
+            Token::Match { length, distance } => {
+                let (len_symbol, _, _) = length_code(length);
+                lit_len_counts[len_symbol as usize] += 1;
+
+                let (dist_symbol, _, _) = distance_code(distance);
+                dist_counts[dist_symbol as usize] += 1;
+            }
+        }
+    }
+    // End of block
+    lit_len_counts[256] += 1;
+
+    // Ensure at least one distance code per spec
+    if dist_counts.iter().all(|&f| f == 0) {
+        dist_counts[0] = 1;
+    }
+
+    (lit_len_counts, dist_counts)
+}
+
+/// Estimate the bit cost of encoding a range of tokens with dynamic Huffman.
+/// Returns estimated bits including block header overhead.
+fn estimate_block_cost(tokens: &[Token], start: usize, end: usize) -> f64 {
+    if end <= start {
+        return 0.0;
+    }
+
+    let (lit_len_counts, dist_counts) = count_symbols_range(tokens, start, end);
+
+    // Calculate entropy-based costs
+    let lit_total: u32 = lit_len_counts.iter().sum();
+    let dist_total: u32 = dist_counts.iter().sum();
+
+    if lit_total == 0 {
+        return BLOCK_HEADER_OVERHEAD_BITS;
+    }
+
+    let log_lit_total = (lit_total as f64).log2();
+    let log_dist_total = if dist_total > 0 {
+        (dist_total as f64).log2()
+    } else {
+        0.0
+    };
+
+    let mut total_bits = BLOCK_HEADER_OVERHEAD_BITS;
+
+    // Add entropy cost for literal/length symbols
+    for &count in &lit_len_counts {
+        if count > 0 {
+            let bits_per_symbol = log_lit_total - (count as f64).log2();
+            total_bits += count as f64 * bits_per_symbol;
+        }
+    }
+
+    // Add entropy cost for distance symbols
+    for &count in &dist_counts {
+        if count > 0 {
+            let bits_per_symbol = log_dist_total - (count as f64).log2();
+            total_bits += count as f64 * bits_per_symbol;
+        }
+    }
+
+    // Add extra bits for length and distance codes
+    for token in &tokens[start..end] {
+        if let Token::Match { length, distance } = token {
+            let (_, len_extra, _) = length_code(*length);
+            let (_, dist_extra, _) = distance_code(*distance);
+            total_bits += (len_extra + dist_extra) as f64;
+        }
+    }
+
+    total_bits
+}
+
+/// Find the optimal split point within a range that minimizes total cost.
+/// Returns (split_point, cost_if_split) or None if no beneficial split found.
+fn find_best_split(tokens: &[Token], start: usize, end: usize) -> Option<(usize, f64)> {
+    if end - start < MIN_BLOCK_SIZE * 2 {
+        return None;
+    }
+
+    let orig_cost = estimate_block_cost(tokens, start, end);
+    let mut best_split = None;
+    let mut best_cost = orig_cost;
+
+    // Try split points using a coarse-to-fine search
+    // First pass: sample at regular intervals
+    let step = ((end - start) / 9).max(1);
+    let mut candidates = Vec::new();
+
+    for i in (start + MIN_BLOCK_SIZE..end - MIN_BLOCK_SIZE).step_by(step) {
+        let left_cost = estimate_block_cost(tokens, start, i);
+        let right_cost = estimate_block_cost(tokens, i, end);
+        let total = left_cost + right_cost;
+        candidates.push((i, total));
+    }
+
+    // Find best candidate
+    if let Some(&(best_i, cost)) = candidates
+        .iter()
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+    {
+        if cost < best_cost {
+            best_cost = cost;
+            best_split = Some(best_i);
+        }
+    }
+
+    // Fine-tune around the best candidate
+    if let Some(approx_best) = best_split {
+        let fine_start = approx_best.saturating_sub(step).max(start + MIN_BLOCK_SIZE);
+        let fine_end = (approx_best + step).min(end - MIN_BLOCK_SIZE);
+
+        for i in fine_start..=fine_end {
+            let left_cost = estimate_block_cost(tokens, start, i);
+            let right_cost = estimate_block_cost(tokens, i, end);
+            let total = left_cost + right_cost;
+            if total < best_cost {
+                best_cost = total;
+                best_split = Some(i);
+            }
+        }
+    }
+
+    // Only return if splitting actually helps
+    if let Some(split) = best_split {
+        if best_cost < orig_cost - 10.0 {
+            // Require at least 10 bits improvement
+            return Some((split, best_cost));
+        }
+    }
+
+    None
+}
+
+/// Find optimal block split points for a token stream.
+/// Returns token indices where blocks should start (not including 0).
+fn find_block_splits(tokens: &[Token], max_blocks: usize) -> Vec<usize> {
+    if tokens.len() < MIN_BLOCK_SIZE * 2 || max_blocks <= 1 {
+        return Vec::new();
+    }
+
+    let mut splits: Vec<usize> = Vec::new();
+    let mut done = vec![false; tokens.len()];
+    let mut num_blocks = 1;
+
+    loop {
+        if num_blocks >= max_blocks {
+            break;
+        }
+
+        // Find the largest splittable block
+        let mut largest_block: Option<(usize, usize, usize)> = None; // (start, end, size)
+
+        let block_boundaries: Vec<usize> = std::iter::once(0)
+            .chain(splits.iter().copied())
+            .chain(std::iter::once(tokens.len()))
+            .collect();
+
+        for i in 0..block_boundaries.len() - 1 {
+            let start = block_boundaries[i];
+            let end = block_boundaries[i + 1];
+            let size = end - start;
+
+            if !done[start] && size >= MIN_BLOCK_SIZE * 2 {
+                if largest_block.map_or(true, |(_, _, s)| size > s) {
+                    largest_block = Some((start, end, size));
+                }
+            }
+        }
+
+        let Some((start, end, _)) = largest_block else {
+            break;
+        };
+
+        // Try to find optimal split for this block
+        if let Some((split_point, _)) = find_best_split(tokens, start, end) {
+            // Insert split point in sorted order
+            let insert_pos = splits
+                .iter()
+                .position(|&s| s > split_point)
+                .unwrap_or(splits.len());
+            splits.insert(insert_pos, split_point);
+            num_blocks += 1;
+        } else {
+            // No beneficial split found for this block
+            done[start] = true;
+        }
+    }
+
+    splits
+}
+
+/// Write a dynamic Huffman block to a BitWriter.
+/// This allows multiple blocks to share a single bit stream.
+fn write_dynamic_huffman_block(writer: &mut BitWriter64, tokens: &[Token], is_final: bool) {
+    // Frequencies
+    let mut lit_freqs = vec![0u32; 286];
+    let mut dist_freqs = vec![0u32; 30];
+
+    for token in tokens {
+        match *token {
+            Token::Literal(b) => lit_freqs[b as usize] += 1,
+            Token::Match { length, distance } => {
+                let (len_symbol, _, _) = length_code(length);
+                lit_freqs[len_symbol as usize] += 1;
+
+                let (dist_symbol, _, _) = distance_code(distance);
+                dist_freqs[dist_symbol as usize] += 1;
+            }
+        }
+    }
+    lit_freqs[256] += 1; // End-of-block
+
+    if dist_freqs.iter().all(|&f| f == 0) {
+        dist_freqs[0] = 1;
+    }
+
+    let lit_codes = huffman::build_codes(&lit_freqs, huffman::MAX_CODE_LENGTH);
+    let dist_codes = huffman::build_codes(&dist_freqs, huffman::MAX_CODE_LENGTH);
+    let lit_rev = prepare_reversed_codes(&lit_codes);
+    let dist_rev = prepare_reversed_codes(&dist_codes);
+
+    let mut lit_lengths: Vec<u8> = lit_codes.iter().map(|c| c.length).collect();
+    let mut dist_lengths: Vec<u8> = dist_codes.iter().map(|c| c.length).collect();
+
+    let hlit = (last_nonzero(&lit_lengths).saturating_sub(257)).min(29);
+    let hdist = (last_nonzero(&dist_lengths).saturating_sub(1)).min(29);
+
+    lit_lengths.truncate(257 + hlit as usize);
+    dist_lengths.truncate(1 + hdist as usize);
+
+    let mut cl_freqs = vec![0u32; 19];
+    let rle = rle_code_lengths(&lit_lengths, &dist_lengths, &mut cl_freqs);
+
+    let cl_codes = huffman::build_codes(&cl_freqs, 7);
+    let cl_rev = prepare_reversed_codes(&cl_codes);
+
+    let cl_order: [usize; 19] = [
+        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+    ];
+    let mut hclen = 0u8;
+    for (i, &idx) in cl_order.iter().enumerate().rev() {
+        if cl_codes[idx].length > 0 {
+            hclen = i.min(15) as u8;
+            break;
+        }
+    }
+
+    writer.write_bits(if is_final { 1 } else { 0 }, 1); // BFINAL
+    writer.write_bits(2, 2); // BTYPE=10 (dynamic)
+
+    writer.write_bits(hlit as u32, 5);
+    writer.write_bits(hdist as u32, 5);
+    writer.write_bits(hclen as u32, 4);
+
+    for &idx in cl_order.iter().take(hclen as usize + 4) {
+        writer.write_bits(cl_codes[idx].length as u32, 3);
+    }
+
+    for (sym, extra_bits, extra_len) in rle {
+        let (code, len) = cl_rev[sym as usize];
+        writer.write_bits(code, len);
+        if extra_len > 0 {
+            writer.write_bits(extra_bits as u32, extra_len);
+        }
+    }
+
+    for token in tokens {
+        match *token {
+            Token::Literal(byte) => {
+                let (code, len) = lit_rev[byte as usize];
+                writer.write_bits(code, len);
+            }
+            Token::Match { length, distance } => {
+                let (len_symbol, len_extra_bits, len_extra_value) = length_code(length);
+                let (len_code, len_len) = lit_rev[len_symbol as usize];
+                writer.write_bits(len_code, len_len);
+                if len_extra_bits > 0 {
+                    writer.write_bits(len_extra_value as u32, len_extra_bits);
+                }
+
+                let (dist_symbol, dist_extra_bits, dist_extra_value) = distance_code(distance);
+                let (dist_code, dist_len) = dist_rev[dist_symbol as usize];
+                writer.write_bits(dist_code, dist_len);
+                if dist_extra_bits > 0 {
+                    writer.write_bits(dist_extra_value as u32, dist_extra_bits);
+                }
+            }
+        }
+    }
+
+    let (eob_code, eob_len) = lit_rev[256];
+    writer.write_bits(eob_code, eob_len);
+}
+
+/// Compress data using optimal DEFLATE with adaptive block splitting.
+///
+/// This extends `deflate_optimal` by splitting the token stream into
+/// multiple blocks when doing so reduces total encoded size. Each block
+/// gets its own Huffman tables optimized for its content.
+pub fn deflate_optimal_split(data: &[u8], iterations: usize, max_blocks: usize) -> Vec<u8> {
+    if data.is_empty() {
+        let mut writer = BitWriter64::with_capacity(16);
+        writer.write_bits(1, 1); // BFINAL = 1
+        writer.write_bits(1, 2); // BTYPE = 01 (fixed Huffman)
+        let lit_codes = huffman::fixed_literal_codes();
+        let code = lit_codes[256];
+        writer.write_bits(reverse_bits(code.code, code.length), code.length);
+        return writer.finish();
+    }
+
+    let mut lz77 = Lz77Compressor::new(9);
+
+    // Initial greedy pass for baseline statistics
+    let initial_tokens = lz77.compress(data);
+    let (mut lit_len_counts, mut dist_counts) = count_symbols(&initial_tokens);
+
+    let mut best_tokens = initial_tokens;
+    let mut prev_cost = f32::MAX;
+
+    // Iterative refinement
+    for iter in 0..iterations {
+        let cost_model = CostModel::from_statistics(&lit_len_counts, &dist_counts);
+        let tokens = lz77.compress_optimal(data, &cost_model);
+
+        // Update statistics
+        let (new_lit_counts, new_dist_counts) = count_symbols(&tokens);
+
+        // Check for convergence
+        let cost: f32 = tokens
+            .iter()
+            .map(|t| match t {
+                Token::Literal(b) => cost_model.literal_cost(*b),
+                Token::Match { length, distance } => cost_model.match_cost(*length, *distance),
+            })
+            .sum();
+
+        if iter > 2 && (prev_cost - cost).abs() < cost * 0.001 {
+            best_tokens = tokens;
+            break;
+        }
+        prev_cost = cost;
+        best_tokens = tokens;
+
+        // Blend statistics
+        for i in 0..286 {
+            lit_len_counts[i] = (lit_len_counts[i] as f32 * 0.5 + new_lit_counts[i] as f32) as u32;
+        }
+        for i in 0..30 {
+            dist_counts[i] = (dist_counts[i] as f32 * 0.5 + new_dist_counts[i] as f32) as u32;
+        }
+    }
+
+    // Find optimal block splits
+    let splits = find_block_splits(&best_tokens, max_blocks);
+
+    // Create a single BitWriter for the entire stream
+    let est_bytes = best_tokens.len() * 2;
+    let mut writer = BitWriter64::with_capacity(est_bytes);
+
+    if splits.is_empty() {
+        // No splitting beneficial, encode as single block
+        write_dynamic_huffman_block(&mut writer, &best_tokens, true);
+    } else {
+        // Encode each block using the same bit writer
+        let boundaries: Vec<usize> = std::iter::once(0)
+            .chain(splits.iter().copied())
+            .chain(std::iter::once(best_tokens.len()))
+            .collect();
+
+        for i in 0..boundaries.len() - 1 {
+            let start = boundaries[i];
+            let end = boundaries[i + 1];
+            let is_final = i == boundaries.len() - 2;
+
+            let block_tokens = &best_tokens[start..end];
+            write_dynamic_huffman_block(&mut writer, block_tokens, is_final);
+        }
+    }
+
+    writer.finish()
+}
+
+/// Compress data using optimal DEFLATE with block splitting and wrap in zlib container.
+pub fn deflate_optimal_split_zlib(data: &[u8], iterations: usize, max_blocks: usize) -> Vec<u8> {
+    let deflated = deflate_optimal_split(data, iterations, max_blocks);
+    let use_stored = should_use_stored(data.len(), deflated.len());
+
+    let mut output = Vec::with_capacity(deflated.len().min(data.len()) + 32);
+    output.extend_from_slice(&zlib_header(9));
+
+    if use_stored {
+        let stored_blocks = deflate_stored(data);
+        output.extend_from_slice(&stored_blocks);
+    } else {
+        output.extend_from_slice(&deflated);
+    }
+
+    output.extend_from_slice(&adler32(data).to_be_bytes());
+    output
 }
 
 /// Compress data using DEFLATE algorithm with packed tokens, returning stats.
@@ -1611,5 +2192,148 @@ mod tests {
             .expect("dynamic Huffman should decode");
 
         assert_eq!(decoded, data.to_vec(), "dynamic Huffman roundtrip failed");
+    }
+
+    #[test]
+    fn test_deflate_optimal_empty() {
+        let compressed = deflate_optimal(&[], 3);
+        assert!(!compressed.is_empty());
+    }
+
+    #[test]
+    fn test_deflate_optimal_roundtrip() {
+        use flate2::read::DeflateDecoder;
+        use std::io::Read;
+
+        let data = b"The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.";
+        let compressed = deflate_optimal(data, 3);
+
+        // Verify it decodes correctly
+        let mut decoder = DeflateDecoder::new(&compressed[..]);
+        let mut decoded = Vec::new();
+        decoder
+            .read_to_end(&mut decoded)
+            .expect("optimal deflate should decode");
+
+        assert_eq!(decoded, data.to_vec(), "optimal deflate roundtrip failed");
+    }
+
+    #[test]
+    fn test_deflate_optimal_compresses_better() {
+        // For repetitive data, optimal parsing should be at least as good as greedy
+        let data = b"abcdefghijklmnopqrstuvwxyz".repeat(100);
+
+        let greedy = deflate(&data, 9);
+        let optimal = deflate_optimal(&data, 5);
+
+        // Optimal should be no larger than greedy (and usually smaller)
+        assert!(
+            optimal.len() <= greedy.len() + 10, // Allow small margin due to block header differences
+            "optimal ({}) should not be much larger than greedy ({})",
+            optimal.len(),
+            greedy.len()
+        );
+    }
+
+    #[test]
+    fn test_deflate_optimal_zlib_roundtrip() {
+        let data = b"This is a test of optimal DEFLATE compression with zlib wrapper. This is a test of optimal DEFLATE compression with zlib wrapper.";
+        let compressed = deflate_optimal_zlib(data, 3);
+
+        let decoded = decompress_zlib(&compressed);
+        assert_eq!(decoded, data.to_vec(), "optimal zlib roundtrip failed");
+    }
+
+    #[test]
+    fn test_count_symbols() {
+        let tokens = vec![
+            Token::Literal(b'a'),
+            Token::Literal(b'b'),
+            Token::Match {
+                length: 3,
+                distance: 2,
+            },
+        ];
+
+        let (lit_counts, dist_counts) = count_symbols(&tokens);
+
+        // Check that 'a' and 'b' are counted
+        assert_eq!(lit_counts[b'a' as usize], 1);
+        assert_eq!(lit_counts[b'b' as usize], 1);
+
+        // Check that length code 257 (for length 3) is counted
+        assert_eq!(lit_counts[257], 1);
+
+        // Check that end of block is counted
+        assert_eq!(lit_counts[256], 1);
+
+        // Check distance code 1 (for distance 2) is counted
+        assert_eq!(dist_counts[1], 1);
+    }
+
+    #[test]
+    fn test_deflate_optimal_split_empty() {
+        let compressed = deflate_optimal_split(&[], 3, 15);
+        assert!(!compressed.is_empty());
+    }
+
+    #[test]
+    fn test_deflate_optimal_split_roundtrip() {
+        use flate2::read::DeflateDecoder;
+        use std::io::Read;
+
+        // Use a larger data set that might benefit from block splitting
+        let data = b"The quick brown fox jumps over the lazy dog. ".repeat(100);
+        let compressed = deflate_optimal_split(&data, 3, 15);
+
+        // Verify it decodes correctly
+        let mut decoder = DeflateDecoder::new(&compressed[..]);
+        let mut decoded = Vec::new();
+        decoder
+            .read_to_end(&mut decoded)
+            .expect("optimal split deflate should decode");
+
+        assert_eq!(decoded, data, "optimal split deflate roundtrip failed");
+    }
+
+    #[test]
+    fn test_deflate_optimal_split_zlib_roundtrip() {
+        // Test with varying data that might benefit from block splitting
+        let mut data = Vec::new();
+        // First section: repetitive text
+        data.extend_from_slice(&b"abcdefgh".repeat(200));
+        // Second section: different pattern
+        data.extend_from_slice(&b"12345678".repeat(200));
+        // Third section: mixed content
+        data.extend_from_slice(
+            b"The quick brown fox jumps over the lazy dog. "
+                .repeat(50)
+                .as_slice(),
+        );
+
+        let compressed = deflate_optimal_split_zlib(&data, 3, 15);
+        let decoded = decompress_zlib(&compressed);
+        assert_eq!(decoded, data, "optimal split zlib roundtrip failed");
+    }
+
+    #[test]
+    fn test_block_splitting_finds_splits_for_varied_data() {
+        // Create data with distinct statistical regions
+        let mut lz77 = Lz77Compressor::new(6);
+
+        let mut data = Vec::new();
+        // Region 1: lots of 'a'
+        data.extend_from_slice(&[b'a'; 1000]);
+        // Region 2: lots of 'z'
+        data.extend_from_slice(&[b'z'; 1000]);
+
+        let tokens = lz77.compress(&data);
+
+        // Should find at least some split points for data with distinct regions
+        // (though whether it actually splits depends on whether it saves bits)
+        let splits = find_block_splits(&tokens, 10);
+
+        // Just verify it doesn't crash and returns a valid result
+        assert!(splits.len() <= 9); // At most max_blocks - 1 splits
     }
 }

@@ -140,12 +140,8 @@ fn test_error_handling() {
 #[test]
 fn test_invalid_restart_interval() {
     let pixels = vec![128u8; 8 * 8 * 3];
-    let opts = jpeg::JpegOptions {
-        quality: 85,
-        subsampling: jpeg::Subsampling::S444,
-        restart_interval: Some(0),
-        optimize_huffman: false,
-    };
+    let mut opts = jpeg::JpegOptions::fast(85);
+    opts.restart_interval = Some(0);
     let result = jpeg::encode_with_options(&pixels, 8, 8, 85, ColorType::Rgb, &opts);
     assert!(result.is_err());
 }
@@ -273,18 +269,9 @@ fn test_jpeg_subsampling_420() {
     let mut rgb = vec![0u8; (width * height * 3) as usize];
     rng.fill(rgb.as_mut_slice());
 
-    let opts_444 = jpeg::JpegOptions {
-        quality: 75,
-        subsampling: jpeg::Subsampling::S444,
-        restart_interval: None,
-        optimize_huffman: false,
-    };
-    let opts_420 = jpeg::JpegOptions {
-        quality: 75,
-        subsampling: jpeg::Subsampling::S420,
-        restart_interval: None,
-        optimize_huffman: false,
-    };
+    let opts_444 = jpeg::JpegOptions::fast(75);
+    let mut opts_420 = jpeg::JpegOptions::fast(75);
+    opts_420.subsampling = jpeg::Subsampling::S420;
 
     let jpeg_444 =
         jpeg::encode_with_options(&rgb, width, height, 75, ColorType::Rgb, &opts_444).unwrap();
@@ -308,12 +295,8 @@ fn test_jpeg_restart_interval_marker_and_decode() {
     let mut rgb = vec![0u8; (width * height * 3) as usize];
     rng.fill(rgb.as_mut_slice());
 
-    let opts = jpeg::JpegOptions {
-        quality: 80,
-        subsampling: jpeg::Subsampling::S444,
-        restart_interval: Some(4),
-        optimize_huffman: false,
-    };
+    let mut opts = jpeg::JpegOptions::fast(80);
+    opts.restart_interval = Some(4);
 
     let jpeg_bytes =
         jpeg::encode_with_options(&rgb, width, height, 80, ColorType::Rgb, &opts).unwrap();
@@ -342,12 +325,9 @@ fn test_jpeg_marker_structure_with_restart() {
     let mut rgb = vec![0u8; (width * height * 3) as usize];
     rng.fill(rgb.as_mut_slice());
 
-    let opts = jpeg::JpegOptions {
-        quality: 85,
-        subsampling: jpeg::Subsampling::S420,
-        restart_interval: Some(4),
-        optimize_huffman: false,
-    };
+    let mut opts = jpeg::JpegOptions::fast(85);
+    opts.subsampling = jpeg::Subsampling::S420;
+    opts.restart_interval = Some(4);
 
     let jpeg_bytes =
         jpeg::encode_with_options(&rgb, width, height, 85, ColorType::Rgb, &opts).unwrap();
@@ -419,12 +399,7 @@ fn test_jpeg_no_restart_marker_without_interval() {
     let mut rgb = vec![0u8; (width * height * 3) as usize];
     rng.fill(rgb.as_mut_slice());
 
-    let opts = jpeg::JpegOptions {
-        quality: 80,
-        subsampling: jpeg::Subsampling::S444,
-        restart_interval: None,
-        optimize_huffman: false,
-    };
+    let opts = jpeg::JpegOptions::fast(80);
 
     let jpeg_bytes =
         jpeg::encode_with_options(&rgb, width, height, 80, ColorType::Rgb, &opts).unwrap();
@@ -475,12 +450,9 @@ proptest! {
     fn prop_jpeg_decode_randomized_options(
         (w, h, quality, color_type, subsampling, restart_interval, data) in jpeg_case_strategy()
     ) {
-        let opts = jpeg::JpegOptions {
-            quality,
-            subsampling,
-            restart_interval,
-            optimize_huffman: false,
-        };
+        let mut opts = jpeg::JpegOptions::fast(quality);
+        opts.subsampling = subsampling;
+        opts.restart_interval = restart_interval;
 
         let encoded =
             jpeg::encode_with_options(&data, w, h, quality, color_type, &opts).unwrap();
@@ -532,16 +504,8 @@ fn test_jpeg_optimize_huffman_structured_image() {
         }
     }
 
-    let base_opts = jpeg::JpegOptions {
-        quality: 85,
-        subsampling: jpeg::Subsampling::S444,
-        restart_interval: None,
-        optimize_huffman: false,
-    };
-    let opt_opts = jpeg::JpegOptions {
-        optimize_huffman: true,
-        ..base_opts
-    };
+    let base_opts = jpeg::JpegOptions::fast(85);
+    let opt_opts = jpeg::JpegOptions::balanced(85);
 
     let default_bytes =
         jpeg::encode_with_options(&rgb, width, height, 85, ColorType::Rgb, &base_opts).unwrap();

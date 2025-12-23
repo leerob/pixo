@@ -88,7 +88,7 @@ pub fn encode_png(
 /// * `height` - Image height in pixels
 /// * `color_type` - Color type: 0=Gray, 1=GrayAlpha, 2=Rgb, 3=Rgba
 /// * `compression_level` - Compression level 1-9 (6 recommended)
-/// * `filter` - Filter strategy: 0=None, 1=Sub, 2=Up, 3=Average, 4=Paeth, 5=Adaptive, 6=AdaptiveFast, 7=Entropy, 8=MinSum, 9=Bigrams, 10=BigEnt, 11=Brute
+/// * `filter` - Filter strategy: 0=None, 1=Sub, 2=Up, 3=Average, 4=Paeth, 5=Adaptive, 6=AdaptiveFast, 7=MinSum
 ///
 /// # Returns
 ///
@@ -112,14 +112,10 @@ pub fn encode_png_with_filter(
         4 => FilterStrategy::Paeth,
         5 => FilterStrategy::Adaptive,
         6 => FilterStrategy::AdaptiveFast,
-        7 => FilterStrategy::Entropy,
-        8 => FilterStrategy::MinSum,
-        9 => FilterStrategy::Bigrams,
-        10 => FilterStrategy::BigEnt,
-        11 => FilterStrategy::Brute,
+        7 => FilterStrategy::MinSum,
         _ => {
             return Err(JsError::new(&format!(
-                "Invalid filter: {filter}. Expected 0-11",
+                "Invalid filter: {filter}. Expected 0-7",
             )))
         }
     };
@@ -198,6 +194,8 @@ pub fn encode_jpeg_with_optimize(
         },
         restart_interval: None,
         optimize_huffman,
+        progressive: false,
+        trellis_quant: false,
     };
 
     jpeg::encode_with_options(data, width, height, quality, color, &options)
@@ -216,6 +214,70 @@ pub fn encode_jpeg_with_optimize(
 pub fn bytes_per_pixel(color_type: u8) -> Result<u8, JsError> {
     let color = color_type_from_u8(color_type)?;
     Ok(color.bytes_per_pixel() as u8)
+}
+
+/// Encode PNG with preset: 0=fast, 1=balanced, 2=max.
+///
+/// # Arguments
+///
+/// * `data` - Raw pixel data as Uint8Array (row-major order)
+/// * `width` - Image width in pixels
+/// * `height` - Image height in pixels
+/// * `color_type` - Color type: 0=Gray, 1=GrayAlpha, 2=Rgb, 3=Rgba
+/// * `preset` - Preset: 0=fast, 1=balanced, 2=max
+///
+/// # Returns
+///
+/// PNG file bytes as Uint8Array.
+#[wasm_bindgen(js_name = "encodePngPreset")]
+pub fn encode_png_preset(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    color_type: u8,
+    preset: u8,
+) -> Result<Vec<u8>, JsError> {
+    let color = color_type_from_u8(color_type)?;
+    let options = PngOptions::from_preset(preset);
+    png::encode_with_options(data, width, height, color, &options)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// Encode JPEG with preset: 0=fast, 1=balanced, 2=max.
+///
+/// # Arguments
+///
+/// * `data` - Raw pixel data as Uint8Array (row-major order)
+/// * `width` - Image width in pixels
+/// * `height` - Image height in pixels
+/// * `quality` - Quality level 1-100 (85 recommended)
+/// * `color_type` - Color type: 0=Gray, 2=Rgb (JPEG only supports these)
+/// * `preset` - Preset: 0=fast, 1=balanced, 2=max
+///
+/// # Returns
+///
+/// JPEG file bytes as Uint8Array.
+#[wasm_bindgen(js_name = "encodeJpegPreset")]
+pub fn encode_jpeg_preset(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    color_type: u8,
+    preset: u8,
+) -> Result<Vec<u8>, JsError> {
+    let color = match color_type {
+        0 => ColorType::Gray,
+        2 => ColorType::Rgb,
+        _ => {
+            return Err(JsError::new(&format!(
+                "Invalid color type for JPEG: {color_type}. Expected 0 (Gray) or 2 (Rgb)",
+            )))
+        }
+    };
+    let options = JpegOptions::from_preset(quality, preset);
+    jpeg::encode_with_options(data, width, height, quality, color, &options)
+        .map_err(|e| JsError::new(&e.to_string()))
 }
 
 // Tests for the WASM module.

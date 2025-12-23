@@ -60,20 +60,9 @@ pub fn apply_filters(
     let filtered_row_size = row_bytes + 1; // +1 for filter type byte
     let zero_row = vec![0u8; row_bytes];
 
-    // Height-aware strategy tweaks: for tall images, favor sampled adaptive to
-    // reduce per-row work while preserving quality.
+    // Height-aware strategy tweaks.
     let mut strategy = options.filter_strategy;
     let area = (width as usize).saturating_mul(height as usize);
-    // For tiny images, avoid expensive brute/bigent/bigrams/entropy passes.
-    if area <= 1024 {
-        strategy = match strategy {
-            FilterStrategy::Brute
-            | FilterStrategy::BigEnt
-            | FilterStrategy::Bigrams
-            | FilterStrategy::Entropy => FilterStrategy::AdaptiveFast,
-            _ => strategy,
-        };
-    }
     // For very small images, prefer Sub filter to minimize CPU overhead.
     if area <= 4096
         && matches!(
@@ -82,9 +71,6 @@ pub fn apply_filters(
         )
     {
         strategy = FilterStrategy::Sub;
-    } else if matches!(strategy, FilterStrategy::AdaptiveFast) && height >= 512 {
-        let interval = if height >= 2048 { 8 } else { 4 };
-        strategy = FilterStrategy::AdaptiveSampled { interval };
     }
 
     // Fast high-entropy detection: if the first row has almost no identical
@@ -93,9 +79,7 @@ pub fn apply_filters(
     if area >= 16_384
         && matches!(
             strategy,
-            FilterStrategy::Adaptive
-                | FilterStrategy::AdaptiveFast
-                | FilterStrategy::AdaptiveSampled { .. }
+            FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast
         )
     {
         let first_row = &data[..row_bytes];
@@ -111,9 +95,7 @@ pub fn apply_filters(
         if height > 32
             && matches!(
                 strategy,
-                FilterStrategy::Adaptive
-                    | FilterStrategy::AdaptiveFast
-                    | FilterStrategy::AdaptiveSampled { .. }
+                FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast
             )
         {
             return apply_filters_parallel(
@@ -153,75 +135,6 @@ pub fn apply_filters(
                     last_filter = f;
                 }
             }
-            FilterStrategy::Bigrams => {
-                bigram_filter(
-                    row,
-                    if y == 0 { &zero_row[..] } else { prev_row },
-                    bytes_per_pixel,
-                    &mut output,
-                    &mut adaptive_scratch,
-                );
-                if let Some(&f) = output.last() {
-                    last_filter = f;
-                }
-            }
-            FilterStrategy::BigEnt => {
-                bigent_filter(
-                    row,
-                    if y == 0 { &zero_row[..] } else { prev_row },
-                    bytes_per_pixel,
-                    &mut output,
-                    &mut adaptive_scratch,
-                );
-                if let Some(&f) = output.last() {
-                    last_filter = f;
-                }
-            }
-            FilterStrategy::Brute => {
-                brute_filter(
-                    row,
-                    if y == 0 { &zero_row[..] } else { prev_row },
-                    bytes_per_pixel,
-                    &mut output,
-                    &mut adaptive_scratch,
-                );
-                if let Some(&f) = output.last() {
-                    last_filter = f;
-                }
-            }
-            FilterStrategy::AdaptiveSampled { interval } if interval > 1 => {
-                let interval = interval.max(1) as usize;
-                let prev = if y == 0 { &zero_row[..] } else { prev_row };
-                // Dynamic interval: more sampling on small images, coarser on tall images.
-                let eff_interval = if height as usize > 512 {
-                    interval.max(4)
-                } else {
-                    interval
-                };
-                if y % eff_interval == 0 {
-                    let base = output.len();
-                    adaptive_filter(
-                        row,
-                        prev,
-                        bytes_per_pixel,
-                        &mut output,
-                        &mut adaptive_scratch,
-                    );
-                    if let Some(&f) = output.get(base) {
-                        last_filter = f;
-                    }
-                } else {
-                    output.push(last_filter);
-                    apply_filter_type(
-                        last_filter,
-                        row,
-                        prev,
-                        bytes_per_pixel,
-                        &mut output,
-                        &mut adaptive_scratch,
-                    );
-                }
-            }
             FilterStrategy::AdaptiveFast => {
                 let base = output.len();
                 filter_row(
@@ -241,18 +154,6 @@ pub fn apply_filters(
                 if let Some(&f) = output.get(base) {
                     last_filter = f;
                     last_adaptive_filter = Some(f);
-                }
-            }
-            FilterStrategy::Entropy => {
-                entropy_filter(
-                    row,
-                    if y == 0 { &zero_row[..] } else { prev_row },
-                    bytes_per_pixel,
-                    &mut output,
-                    &mut adaptive_scratch,
-                );
-                if let Some(&f) = output.last() {
-                    last_filter = f;
                 }
             }
             _ => {
@@ -495,251 +396,6 @@ fn minsum_filter(
     adaptive_filter(row, prev_row, bpp, output, scratch);
 }
 
-/// Entropy-based filter selection: choose filter minimizing estimated entropy of the filtered row.
-fn entropy_filter(
-    row: &[u8],
-    prev_row: &[u8],
-    bpp: usize,
-    output: &mut Vec<u8>,
-    scratch: &mut AdaptiveScratch,
-) {
-    scratch.clear();
-
-    let mut best_filter = FILTER_NONE;
-    let mut best_score = f64::INFINITY;
-
-    // None
-    scratch.none.extend_from_slice(row);
-    let score = score_entropy(&scratch.none);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_NONE;
-    }
-
-    // Sub
-    filter_sub(row, bpp, &mut scratch.sub);
-    let score = score_entropy(&scratch.sub);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_SUB;
-    }
-
-    // Up
-    filter_up(row, prev_row, &mut scratch.up);
-    let score = score_entropy(&scratch.up);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_UP;
-    }
-
-    // Average
-    filter_average(row, prev_row, bpp, &mut scratch.avg);
-    let score = score_entropy(&scratch.avg);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_AVERAGE;
-    }
-
-    // Paeth
-    filter_paeth(row, prev_row, bpp, &mut scratch.paeth);
-    let score = score_entropy(&scratch.paeth);
-    if score < best_score {
-        best_filter = FILTER_PAETH;
-    }
-
-    output.push(best_filter);
-    match best_filter {
-        FILTER_NONE => output.extend_from_slice(&scratch.none),
-        FILTER_SUB => output.extend_from_slice(&scratch.sub),
-        FILTER_UP => output.extend_from_slice(&scratch.up),
-        FILTER_AVERAGE => output.extend_from_slice(&scratch.avg),
-        FILTER_PAETH => output.extend_from_slice(&scratch.paeth),
-        _ => unreachable!(),
-    }
-}
-
-/// Bigram-entropy-based filter selection.
-fn bigram_filter(
-    row: &[u8],
-    prev_row: &[u8],
-    bpp: usize,
-    output: &mut Vec<u8>,
-    scratch: &mut AdaptiveScratch,
-) {
-    scratch.clear();
-
-    let mut best_filter = FILTER_NONE;
-    let mut best_score = f64::INFINITY;
-
-    // None
-    scratch.none.extend_from_slice(row);
-    let score = score_bigram_entropy(&scratch.none);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_NONE;
-    }
-
-    // Sub
-    filter_sub(row, bpp, &mut scratch.sub);
-    let score = score_bigram_entropy(&scratch.sub);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_SUB;
-    }
-
-    // Up
-    filter_up(row, prev_row, &mut scratch.up);
-    let score = score_bigram_entropy(&scratch.up);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_UP;
-    }
-
-    // Average
-    filter_average(row, prev_row, bpp, &mut scratch.avg);
-    let score = score_bigram_entropy(&scratch.avg);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_AVERAGE;
-    }
-
-    // Paeth
-    filter_paeth(row, prev_row, bpp, &mut scratch.paeth);
-    let score = score_bigram_entropy(&scratch.paeth);
-    if score < best_score {
-        best_filter = FILTER_PAETH;
-    }
-
-    output.push(best_filter);
-    match best_filter {
-        FILTER_NONE => output.extend_from_slice(&scratch.none),
-        FILTER_SUB => output.extend_from_slice(&scratch.sub),
-        FILTER_UP => output.extend_from_slice(&scratch.up),
-        FILTER_AVERAGE => output.extend_from_slice(&scratch.avg),
-        FILTER_PAETH => output.extend_from_slice(&scratch.paeth),
-        _ => unreachable!(),
-    }
-}
-
-/// Combined entropy + bigram entropy scoring (oxipng bigent-like).
-fn bigent_filter(
-    row: &[u8],
-    prev_row: &[u8],
-    bpp: usize,
-    output: &mut Vec<u8>,
-    scratch: &mut AdaptiveScratch,
-) {
-    scratch.clear();
-
-    let mut best_filter = FILTER_NONE;
-    let mut best_score = f64::INFINITY;
-
-    // None
-    scratch.none.extend_from_slice(row);
-    let score = score_bigent(&scratch.none);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_NONE;
-    }
-
-    // Sub
-    filter_sub(row, bpp, &mut scratch.sub);
-    let score = score_bigent(&scratch.sub);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_SUB;
-    }
-
-    // Up
-    filter_up(row, prev_row, &mut scratch.up);
-    let score = score_bigent(&scratch.up);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_UP;
-    }
-
-    // Average
-    filter_average(row, prev_row, bpp, &mut scratch.avg);
-    let score = score_bigent(&scratch.avg);
-    if score < best_score {
-        best_score = score;
-        best_filter = FILTER_AVERAGE;
-    }
-
-    // Paeth
-    filter_paeth(row, prev_row, bpp, &mut scratch.paeth);
-    let score = score_bigent(&scratch.paeth);
-    if score < best_score {
-        best_filter = FILTER_PAETH;
-    }
-
-    output.push(best_filter);
-    match best_filter {
-        FILTER_NONE => output.extend_from_slice(&scratch.none),
-        FILTER_SUB => output.extend_from_slice(&scratch.sub),
-        FILTER_UP => output.extend_from_slice(&scratch.up),
-        FILTER_AVERAGE => output.extend_from_slice(&scratch.avg),
-        FILTER_PAETH => output.extend_from_slice(&scratch.paeth),
-        _ => unreachable!(),
-    }
-}
-
-/// Brute heuristic: combine min-sum + entropy + bigram entropy and pick the lowest composite.
-fn brute_filter(
-    row: &[u8],
-    prev_row: &[u8],
-    bpp: usize,
-    output: &mut Vec<u8>,
-    scratch: &mut AdaptiveScratch,
-) {
-    scratch.clear();
-
-    let mut best_filter = FILTER_NONE;
-    let mut best_score = f64::INFINITY;
-
-    let mut consider = |filter: u8, data: &[u8]| {
-        let sum = score_filter(data) as f64;
-        let ent = score_entropy(data);
-        let big = score_bigram_entropy(data);
-        // Weighted composite: min-sum dominates, entropy/bigram refine tie-breaks.
-        let composite = sum + ent + big;
-        if composite < best_score {
-            best_score = composite;
-            best_filter = filter;
-        }
-    };
-
-    // None
-    scratch.none.extend_from_slice(row);
-    consider(FILTER_NONE, &scratch.none);
-
-    // Sub
-    filter_sub(row, bpp, &mut scratch.sub);
-    consider(FILTER_SUB, &scratch.sub);
-
-    // Up
-    filter_up(row, prev_row, &mut scratch.up);
-    consider(FILTER_UP, &scratch.up);
-
-    // Average
-    filter_average(row, prev_row, bpp, &mut scratch.avg);
-    consider(FILTER_AVERAGE, &scratch.avg);
-
-    // Paeth
-    filter_paeth(row, prev_row, bpp, &mut scratch.paeth);
-    consider(FILTER_PAETH, &scratch.paeth);
-
-    output.push(best_filter);
-    match best_filter {
-        FILTER_NONE => output.extend_from_slice(&scratch.none),
-        FILTER_SUB => output.extend_from_slice(&scratch.sub),
-        FILTER_UP => output.extend_from_slice(&scratch.up),
-        FILTER_AVERAGE => output.extend_from_slice(&scratch.avg),
-        FILTER_PAETH => output.extend_from_slice(&scratch.paeth),
-        _ => unreachable!(),
-    }
-}
-
 /// Adaptive filtering with a faster heuristic and early cutoffs.
 fn adaptive_filter_fast(
     row: &[u8],
@@ -829,47 +485,11 @@ fn filter_row(
         FilterStrategy::MinSum => {
             minsum_filter(row, prev_row, bpp, output, scratch);
         }
-        FilterStrategy::Entropy => {
-            entropy_filter(row, prev_row, bpp, output, scratch);
-        }
-        FilterStrategy::Bigrams => {
-            bigram_filter(row, prev_row, bpp, output, scratch);
-        }
-        FilterStrategy::BigEnt => {
-            bigent_filter(row, prev_row, bpp, output, scratch);
-        }
-        FilterStrategy::Brute => {
-            brute_filter(row, prev_row, bpp, output, scratch);
-        }
         FilterStrategy::Adaptive => {
             adaptive_filter(row, prev_row, bpp, output, scratch);
         }
         FilterStrategy::AdaptiveFast => {
             adaptive_filter_fast(row, prev_row, bpp, output, scratch);
-        }
-        FilterStrategy::AdaptiveSampled { .. } => {
-            // Fallback to full adaptive; sampled handling lives in apply_filters loop.
-            adaptive_filter(row, prev_row, bpp, output, scratch);
-        }
-    }
-}
-
-fn apply_filter_type(
-    filter: u8,
-    row: &[u8],
-    prev_row: &[u8],
-    bpp: usize,
-    output: &mut Vec<u8>,
-    scratch: &mut AdaptiveScratch,
-) {
-    match filter {
-        FILTER_NONE => output.extend_from_slice(row),
-        FILTER_SUB => filter_sub(row, bpp, output),
-        FILTER_UP => filter_up(row, prev_row, output),
-        FILTER_AVERAGE => filter_average(row, prev_row, bpp, output),
-        FILTER_PAETH => filter_paeth(row, prev_row, bpp, output),
-        _ => {
-            adaptive_filter(row, prev_row, bpp, output, scratch);
         }
     }
 }
@@ -928,54 +548,6 @@ fn score_filter(filtered: &[u8]) -> u64 {
             .map(|&b| (b as i8).unsigned_abs() as u64)
             .sum()
     }
-}
-
-/// Entropy estimate (bits) for a filtered row, weighted by length.
-fn score_entropy(filtered: &[u8]) -> f64 {
-    let mut freq = [0u32; 256];
-    for &b in filtered {
-        freq[b as usize] += 1;
-    }
-    let len = filtered.len() as f64;
-    if len == 0.0 {
-        return 0.0;
-    }
-    let mut entropy = 0.0;
-    for &count in &freq {
-        if count == 0 {
-            continue;
-        }
-        let p = count as f64 / len;
-        entropy -= p * p.log2();
-    }
-    entropy * len
-}
-
-/// Bigram entropy (pairs of adjacent bytes) scaled by pair count.
-fn score_bigram_entropy(filtered: &[u8]) -> f64 {
-    if filtered.len() < 2 {
-        return 0.0;
-    }
-    let mut freq = vec![0u32; 65_536];
-    for w in filtered.windows(2) {
-        let idx = ((w[0] as usize) << 8) | w[1] as usize;
-        freq[idx] += 1;
-    }
-    let total = (filtered.len() - 1) as f64;
-    let mut entropy = 0.0;
-    for &count in &freq {
-        if count == 0 {
-            continue;
-        }
-        let p = count as f64 / total;
-        entropy -= p * p.log2();
-    }
-    entropy * total
-}
-
-/// Combined entropy + bigram entropy.
-fn score_bigent(filtered: &[u8]) -> f64 {
-    score_entropy(filtered) + score_bigram_entropy(filtered)
 }
 
 /// Simple high-entropy detector:
@@ -1111,31 +683,5 @@ mod tests {
         // Filter bytes should be one of the defined filters
         assert!(matches!(filtered[0], FILTER_SUB | FILTER_UP | FILTER_PAETH));
         assert!(matches!(filtered[7], FILTER_SUB | FILTER_UP | FILTER_PAETH));
-    }
-
-    #[test]
-    fn test_apply_filters_adaptive_sampled_reuses_filter() {
-        let data = vec![
-            10, 20, 30, 40, 50, 60, // Row 1
-            11, 21, 31, 41, 51, 61, // Row 2
-            12, 22, 32, 42, 52, 62, // Row 3
-            13, 23, 33, 43, 53, 63, // Row 4
-        ];
-        let options = PngOptions {
-            filter_strategy: FilterStrategy::AdaptiveSampled { interval: 2 },
-            ..Default::default()
-        };
-
-        let filtered = apply_filters(&data, 2, 4, 3, &options);
-
-        // 4 rows, each with filter byte + 6 data bytes
-        assert_eq!(filtered.len(), 4 * (1 + 6));
-        let f1 = filtered[0];
-        let f2 = filtered[7];
-        let f3 = filtered[14];
-        let f4 = filtered[21];
-        // Rows 2 and 4 reuse previous filters
-        assert_eq!(f2, f1);
-        assert_eq!(f4, f3);
     }
 }

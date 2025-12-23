@@ -27,10 +27,14 @@ pub struct QuantizationTables {
     pub luminance: [u8; 64],
     /// Chrominance quantization table (zigzag order for output).
     pub chrominance: [u8; 64],
-    /// Luminance table in natural order (for computation).
+    /// Luminance table in natural order (for float computation).
     pub luminance_table: [f32; 64],
-    /// Chrominance table in natural order (for computation).
+    /// Chrominance table in natural order (for float computation).
     pub chrominance_table: [f32; 64],
+    /// Luminance table in natural order (for integer computation).
+    pub luminance_table_int: [u16; 64],
+    /// Chrominance table in natural order (for integer computation).
+    pub chrominance_table_int: [u16; 64],
 }
 
 impl QuantizationTables {
@@ -49,6 +53,8 @@ impl QuantizationTables {
         let mut chrominance = [0u8; 64];
         let mut luminance_table = [0.0f32; 64];
         let mut chrominance_table = [0.0f32; 64];
+        let mut luminance_table_int = [0u16; 64];
+        let mut chrominance_table_int = [0u16; 64];
 
         for i in 0..64 {
             // Scale and clamp to 1-255
@@ -68,6 +74,8 @@ impl QuantizationTables {
 
             luminance_table[i] = lum_val as f32;
             chrominance_table[i] = chrom_val as f32;
+            luminance_table_int[i] = lum_val as u16;
+            chrominance_table_int[i] = chrom_val as u16;
         }
 
         Self {
@@ -75,6 +83,8 @@ impl QuantizationTables {
             chrominance,
             luminance_table,
             chrominance_table,
+            luminance_table_int,
+            chrominance_table_int,
         }
     }
 }

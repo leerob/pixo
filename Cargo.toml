@@ -18,6 +18,11 @@ name = "comprs"
 path = "src/bin/comprs.rs"
 required-features = ["cli"]
 
+[[bin]]
+name = "comprs-web"
+path = "src/bin/web.rs"
+required-features = ["wasm"]
+
 [features]
 # Enable SIMD and parallel fast paths by default. SIMD is guarded by runtime
 # detection and falls back to scalar. Parallel uses rayon for row-level PNG
@@ -62,6 +67,10 @@ harness = false
 
 [[bench]]
 name = "comparison"
+harness = false
+
+[[bench]]
+name = "jpeg_mozjpeg"
 harness = false
 
 [profile.release]

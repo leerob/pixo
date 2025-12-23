@@ -63,14 +63,6 @@ struct Args {
     #[arg(long, value_enum)]
     png_preset: Option<PngPresetArg>,
 
-    /// Interval for adaptive-sampled filter (rows between full evaluations)
-    #[arg(
-        long,
-        default_value = "4",
-        value_parser = clap::value_parser!(u32).range(1..=1_000_000)
-    )]
-    adaptive_sample_interval: u32,
-
     /// Optimize fully transparent pixels by zeroing color channels (PNG)
     #[arg(long, default_value_t = false)]
     png_optimize_alpha: bool,
@@ -133,48 +125,24 @@ enum FilterArg {
     Paeth,
     /// Min-sum filter selection (oxipng-style)
     Minsum,
-    /// Entropy-scored filter selection (more compression, slower)
-    Entropy,
-    /// Bigrams entropy-scored filter selection
-    Bigrams,
-    /// Combined entropy + bigram entropy scoring
-    Bigent,
-    /// Composite heuristic (min-sum + entropy + bigram entropy)
-    Brute,
     /// Adaptive filter selection (best compression)
     Adaptive,
     /// Adaptive with reduced trials and early cutoffs (faster)
     AdaptiveFast,
-    /// Adaptive on sampled rows, reuse chosen filter between samples
-    AdaptiveSampled,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum PngPresetArg {
-    /// Fastest settings (level 2, AdaptiveFast)
+    /// Fastest settings (level 2, AdaptiveFast, no optimizations)
     Fast,
-    /// Balanced settings (level 6, Adaptive)
+    /// Balanced settings (level 6, Adaptive, all optimizations)
     Balanced,
-    /// Maximum compression (level 9, AdaptiveSampled interval=2)
+    /// Maximum compression (level 9, MinSum, all optimizations)
     Max,
-    /// Oxipng-like level 0
-    Level0,
-    /// Oxipng-like level 1
-    Level1,
-    /// Oxipng-like level 2
-    Level2,
-    /// Oxipng-like level 3
-    Level3,
-    /// Oxipng-like level 4
-    Level4,
-    /// Oxipng-like level 5
-    Level5,
-    /// Oxipng-like level 6
-    Level6,
 }
 
 impl FilterArg {
-    fn to_strategy(self, sampled_interval: u32) -> FilterStrategy {
+    fn to_strategy(self) -> FilterStrategy {
         match self {
             FilterArg::None => FilterStrategy::None,
             FilterArg::Sub => FilterStrategy::Sub,
@@ -182,15 +150,8 @@ impl FilterArg {
             FilterArg::Average => FilterStrategy::Average,
             FilterArg::Paeth => FilterStrategy::Paeth,
             FilterArg::Minsum => FilterStrategy::MinSum,
-            FilterArg::Entropy => FilterStrategy::Entropy,
-            FilterArg::Bigrams => FilterStrategy::Bigrams,
-            FilterArg::Bigent => FilterStrategy::BigEnt,
-            FilterArg::Brute => FilterStrategy::Brute,
             FilterArg::Adaptive => FilterStrategy::Adaptive,
             FilterArg::AdaptiveFast => FilterStrategy::AdaptiveFast,
-            FilterArg::AdaptiveSampled => FilterStrategy::AdaptiveSampled {
-                interval: sampled_interval.max(1),
-            },
         }
     }
 }
@@ -511,17 +472,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut options = match args.png_preset {
                 Some(PngPresetArg::Fast) => PngOptions::fast(),
                 Some(PngPresetArg::Balanced) => PngOptions::balanced(),
-                Some(PngPresetArg::Max) => PngOptions::max_compression(),
-                Some(PngPresetArg::Level0) => PngOptions::oxipng_preset(0).unwrap(),
-                Some(PngPresetArg::Level1) => PngOptions::oxipng_preset(1).unwrap(),
-                Some(PngPresetArg::Level2) => PngOptions::oxipng_preset(2).unwrap(),
-                Some(PngPresetArg::Level3) => PngOptions::oxipng_preset(3).unwrap(),
-                Some(PngPresetArg::Level4) => PngOptions::oxipng_preset(4).unwrap(),
-                Some(PngPresetArg::Level5) => PngOptions::oxipng_preset(5).unwrap(),
-                Some(PngPresetArg::Level6) => PngOptions::oxipng_preset(6).unwrap(),
+                Some(PngPresetArg::Max) => PngOptions::max(),
                 None => PngOptions {
                     compression_level: args.compression,
-                    filter_strategy: args.filter.to_strategy(args.adaptive_sample_interval),
+                    filter_strategy: args.filter.to_strategy(),
                     optimize_alpha: args.png_optimize_alpha,
                     reduce_color_type: args.png_reduce_color,
                     strip_metadata: args.png_strip_metadata,
@@ -531,7 +485,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             // Allow explicit overrides if preset is provided but user also set flags.
             options.compression_level = args.compression;
-            options.filter_strategy = args.filter.to_strategy(args.adaptive_sample_interval);
+            options.filter_strategy = args.filter.to_strategy();
             options.optimize_alpha = args.png_optimize_alpha;
             options.reduce_color_type = args.png_reduce_color;
             options.strip_metadata = args.png_strip_metadata;
@@ -570,6 +524,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     Some(args.jpeg_restart_interval)
                 },
                 optimize_huffman: args.jpeg_optimize_huffman,
+                progressive: false,
+                trellis_quant: false,
             };
             if args.verbose {
                 eprintln!(

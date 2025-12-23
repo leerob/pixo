@@ -38,6 +38,7 @@ const DEFAULT_COMPRS_LEVEL_ENV: &str = "COMPRS_PNG_LEVEL";
 const DEFAULT_JPEG_OPT_ENV: &str = "COMPRS_JPEG_OPTIMIZE_HUFFMAN";
 const DEFAULT_JPEG_SUB_ENV: &str = "COMPRS_JPEG_SUBSAMPLING"; // s444/s420
 const DEFAULT_JPEG_RESTART_ENV: &str = "COMPRS_JPEG_RESTART";
+const DEFAULT_JPEG_PRESET_ENV: &str = "COMPRS_JPEG_PRESET"; // faster/auto/smallest or 0/1/2
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fixtures_dir = env::var("FIXTURES").unwrap_or_else(|_| DEFAULT_FIXTURES.to_string());
@@ -64,7 +65,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let (w, h) = img.dimensions();
                 println!("=== {} ({}x{}) ===", fixture.display(), w, h);
 
-                run_png_section(&img, &fixture, &tmp_dir, &oxipng_bin)?;
+                // Only run PNG tests on PNG files to avoid confusing comparisons
+                let is_png = fixture
+                    .extension()
+                    .and_then(OsStr::to_str)
+                    .map(|s| s.eq_ignore_ascii_case("png"))
+                    .unwrap_or(false);
+
+                if is_png {
+                    run_png_section(&img, &fixture, &tmp_dir, &oxipng_bin)?;
+                }
                 run_jpeg_section(&img, &fixture, &tmp_dir, &cjpeg_bin)?;
 
                 println!();
@@ -97,16 +107,9 @@ fn load_comprs_png_options() -> (png::PngOptions, String) {
     if let Ok(preset_name) = env::var(DEFAULT_COMPRS_PRESET_ENV) {
         let lower = preset_name.to_ascii_lowercase();
         let preset = match lower.as_str() {
-            "fast" => Some(png::PngOptions::fast()),
-            "balanced" => Some(png::PngOptions::balanced()),
-            "max" => Some(png::PngOptions::max_compression()),
-            "level0" => png::PngOptions::oxipng_preset(0),
-            "level1" => png::PngOptions::oxipng_preset(1),
-            "level2" => png::PngOptions::oxipng_preset(2),
-            "level3" => png::PngOptions::oxipng_preset(3),
-            "level4" => png::PngOptions::oxipng_preset(4),
-            "level5" => png::PngOptions::oxipng_preset(5),
-            "level6" => png::PngOptions::oxipng_preset(6),
+            "fast" | "0" => Some(png::PngOptions::fast()),
+            "balanced" | "1" => Some(png::PngOptions::balanced()),
+            "max" | "2" => Some(png::PngOptions::max()),
             _ => None,
         };
         if let Some(p) = preset {
@@ -151,13 +154,25 @@ fn load_comprs_png_options() -> (png::PngOptions, String) {
 }
 
 fn load_comprs_jpeg_options() -> (jpeg::JpegOptions, String) {
-    let mut opts = jpeg::JpegOptions {
-        quality: 85,
-        subsampling: jpeg::Subsampling::S444,
-        restart_interval: None,
-        optimize_huffman: false,
-    };
+    let mut opts = jpeg::JpegOptions::fast(85);
     let mut desc_parts = Vec::new();
+
+    // Optional preset override (COMPRS_JPEG_PRESET)
+    if let Ok(preset_name) = env::var(DEFAULT_JPEG_PRESET_ENV) {
+        let lower = preset_name.to_ascii_lowercase();
+        let preset = match lower.as_str() {
+            "fast" | "0" => Some(jpeg::JpegOptions::fast(85)),
+            "balanced" | "1" => Some(jpeg::JpegOptions::balanced(85)),
+            "max" | "2" => Some(jpeg::JpegOptions::max(85)),
+            _ => None,
+        };
+        if let Some(p) = preset {
+            opts = p;
+            desc_parts.push(format!("preset={}", lower));
+        } else {
+            desc_parts.push(format!("preset={lower}(invalid->default)"));
+        }
+    }
 
     if let Ok(opt_str) = env::var(DEFAULT_JPEG_OPT_ENV) {
         let enable = matches!(opt_str.to_ascii_lowercase().as_str(), "1" | "true" | "yes");
@@ -203,15 +218,8 @@ fn parse_filter(name: &str) -> Option<png::FilterStrategy> {
         "average" | "avg" => Some(png::FilterStrategy::Average),
         "paeth" => Some(png::FilterStrategy::Paeth),
         "minsum" => Some(png::FilterStrategy::MinSum),
-        "entropy" => Some(png::FilterStrategy::Entropy),
-        "bigrams" => Some(png::FilterStrategy::Bigrams),
-        "bigent" => Some(png::FilterStrategy::BigEnt),
-        "brute" => Some(png::FilterStrategy::Brute),
         "adaptive" => Some(png::FilterStrategy::Adaptive),
         "adaptive-fast" | "adaptive_fast" => Some(png::FilterStrategy::AdaptiveFast),
-        "adaptive-sampled" | "adaptive_sampled" => {
-            Some(png::FilterStrategy::AdaptiveSampled { interval: 4 })
-        }
         _ => None,
     }
 }

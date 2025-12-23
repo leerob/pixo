@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { compressImage, initWasm, type PngFilter } from "$lib/wasm";
+  import { compressImage, initWasm, type PngFilter, type PresetLevel } from "$lib/wasm";
   import { onDestroy, onMount } from "svelte";
   import JSZip from "jszip";
 
@@ -42,6 +42,7 @@
     compressionLevel: 6,
     filter: "adaptive" as PngFilter,
     subsampling420: true,
+    pngPreset: 1 as PresetLevel, // 0=faster, 1=auto, 2=smallest
   });
 
   let detectedFormat = $derived.by(() => {
@@ -61,16 +62,6 @@
         ? "JPEG"
         : "PNG"
   );
-
-  const filterOptions: { label: string; value: PngFilter }[] = [
-    { label: "Adaptive", value: "adaptive" },
-    { label: "Adaptive Fast", value: "adaptive-fast" },
-    { label: "None", value: "none" },
-    { label: "Sub", value: "sub" },
-    { label: "Up", value: "up" },
-    { label: "Average", value: "average" },
-    { label: "Paeth", value: "paeth" },
-  ];
 
   const fileInputId = "file-input";
 
@@ -232,10 +223,15 @@
     try {
       // Use the job's original format for compression
       const jobFormat = job.type === "image/jpeg" ? "jpeg" : "png";
+      // PNG slider: 0=Smaller(left), 1=Auto, 2=Faster(right)
+      // Map to presets: 0->2(smallest), 1->1(auto), 2->0(faster)
+      const pngPresetValue = (2 - globalOptions.pngPreset) as PresetLevel;
       const { blob, elapsedMs } = await compressImage(job.imageData, {
         ...globalOptions,
         format: jobFormat,
         hasAlpha: job.hasAlpha,
+        // Use preset-based encoding: PNG uses inverted pngPreset, JPEG uses auto (1)
+        preset: jobFormat === "png" ? pngPresetValue : 1 as PresetLevel,
       });
       const url = URL.createObjectURL(blob);
       if (job.result?.url) URL.revokeObjectURL(job.result.url);
@@ -844,35 +840,18 @@
         </label>
       {:else if detectedFormat === "png"}
         <label class="flex items-center gap-2 text-xs">
-          <span class="text-neutral-500">Level</span>
+          <span class="text-neutral-500 whitespace-nowrap">Smaller</span>
           <input
             type="range"
-            min="1"
-            max="9"
+            min="0"
+            max="2"
             step="1"
-            class="w-16 sm:w-20"
-            bind:value={globalOptions.compressionLevel}
+            class="w-16 sm:w-24"
+            bind:value={globalOptions.pngPreset}
             onchange={recompressAll}
-            data-testid="compression-level-slider"
+            data-testid="png-preset-slider"
           />
-          <span
-            class="w-6 sm:w-8 text-neutral-400"
-            data-testid="compression-level-value"
-            >{globalOptions.compressionLevel}</span
-          >
-        </label>
-        <label class="flex items-center gap-2 text-xs">
-          <span class="text-neutral-500">Filter</span>
-          <select
-            class="input text-xs"
-            bind:value={globalOptions.filter}
-            onchange={recompressAll}
-            data-testid="filter-select"
-          >
-            {#each filterOptions as opt}
-              <option value={opt.value}>{opt.label}</option>
-            {/each}
-          </select>
+          <span class="text-neutral-500 whitespace-nowrap">Faster</span>
         </label>
       {/if}
       <!-- When mixed, no format-specific controls are shown -->
