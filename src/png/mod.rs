@@ -90,15 +90,6 @@ pub enum FilterStrategy {
 }
 
 /// Encode raw pixel data as PNG.
-///
-/// # Arguments
-/// * `data` - Raw pixel data (row-major order)
-/// * `width` - Image width in pixels
-/// * `height` - Image height in pixels
-/// * `color_type` - Color type of the input data
-///
-/// # Returns
-/// Complete PNG file as bytes.
 pub fn encode(data: &[u8], width: u32, height: u32, color_type: ColorType) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     encode_into(
@@ -126,9 +117,6 @@ pub fn encode_with_options(
 }
 
 /// Encode raw pixel data as PNG into a caller-provided buffer.
-///
-/// The `output` buffer will be cleared before writing. This API allows callers
-/// to reuse an allocation across multiple encodes.
 pub fn encode_into(
     output: &mut Vec<u8>,
     data: &[u8],
@@ -141,7 +129,6 @@ pub fn encode_into(
         return Err(Error::InvalidCompressionLevel(options.compression_level));
     }
 
-    // Validate dimensions
     if width == 0 || height == 0 {
         return Err(Error::InvalidDimensions { width, height });
     }
@@ -154,7 +141,6 @@ pub fn encode_into(
         });
     }
 
-    // Validate data length
     let bytes_per_pixel = color_type.bytes_per_pixel();
     let expected_len = width as usize * height as usize * bytes_per_pixel;
     if data.len() != expected_len {
@@ -166,23 +152,15 @@ pub fn encode_into(
 
     output.clear();
 
-    // Estimate output size (compressed data + overhead)
     output.reserve(expected_len / 2 + 1024);
 
-    // Write PNG signature
     output.extend_from_slice(&PNG_SIGNATURE);
-
-    // Write IHDR chunk
     write_ihdr(output, width, height, color_type);
 
-    // Apply filtering and compression
     let filtered = filter::apply_filters(data, width, height, bytes_per_pixel, options);
     let compressed = deflate_zlib_packed(&filtered, options.compression_level);
 
-    // Write IDAT chunk(s)
     write_idat_chunks(output, &compressed);
-
-    // Write IEND chunk
     write_iend(output);
 
     Ok(())
@@ -239,37 +217,21 @@ pub fn encode_into_with_stats(
     Ok(stats)
 }
 
-/// Write IHDR (image header) chunk.
 fn write_ihdr(output: &mut Vec<u8>, width: u32, height: u32, color_type: ColorType) {
     let mut ihdr_data = Vec::with_capacity(13);
 
-    // Width (4 bytes, big-endian)
     ihdr_data.extend_from_slice(&width.to_be_bytes());
-
-    // Height (4 bytes, big-endian)
     ihdr_data.extend_from_slice(&height.to_be_bytes());
-
-    // Bit depth (1 byte)
     ihdr_data.push(color_type.png_bit_depth());
-
-    // Color type (1 byte)
     ihdr_data.push(color_type.png_color_type());
-
-    // Compression method (1 byte) - always 0 (DEFLATE)
     ihdr_data.push(0);
-
-    // Filter method (1 byte) - always 0 (adaptive)
     ihdr_data.push(0);
-
-    // Interlace method (1 byte) - 0 (no interlace)
     ihdr_data.push(0);
 
     chunk::write_chunk(output, b"IHDR", &ihdr_data);
 }
 
-/// Write IDAT (image data) chunks.
 fn write_idat_chunks(output: &mut Vec<u8>, compressed: &[u8]) {
-    // Write in larger chunks to reduce per-chunk overhead (CRC/length)
     const CHUNK_SIZE: usize = 256 * 1024;
 
     for chunk_data in compressed.chunks(CHUNK_SIZE) {
@@ -277,7 +239,6 @@ fn write_idat_chunks(output: &mut Vec<u8>, compressed: &[u8]) {
     }
 }
 
-/// Write IEND (image end) chunk.
 fn write_iend(output: &mut Vec<u8>) {
     chunk::write_chunk(output, b"IEND", &[]);
 }

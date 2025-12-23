@@ -1,11 +1,9 @@
 //! CRC32 checksum implementation (PNG uses CRC-32/ISO-HDLC).
 
 /// Slicing-by-8 tables for CRC32 polynomial 0xEDB88320 (reflected 0x04C11DB7).
-/// Built once at runtime; zero-cost thereafter.
 static CRC_TABLES: std::sync::LazyLock<[[u32; 256]; 8]> = std::sync::LazyLock::new(|| {
     let mut tables = [[0u32; 256]; 8];
 
-    // Table 0: classic byte-at-a-time.
     for (i, entry) in tables[0].iter_mut().enumerate() {
         let mut crc = i as u32;
         for _ in 0..8 {
@@ -18,7 +16,6 @@ static CRC_TABLES: std::sync::LazyLock<[[u32; 256]; 8]> = std::sync::LazyLock::n
         *entry = crc;
     }
 
-    // Tables 1..7 derived from table 0.
     for t in 1..8 {
         for i in 0..256 {
             let prev = tables[t - 1][i];
@@ -29,16 +26,12 @@ static CRC_TABLES: std::sync::LazyLock<[[u32; 256]; 8]> = std::sync::LazyLock::n
     tables
 });
 
-/// Calculate CRC32 checksum of data.
-///
-/// Uses the CRC-32/ISO-HDLC algorithm (polynomial 0x04C11DB7 reflected).
-/// This is the CRC used by PNG, gzip, and many other formats.
+/// Calculate CRC32 checksum of data (CRC-32/ISO-HDLC, used by PNG/gzip).
 #[inline]
 pub fn crc32(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
     let tables = &*CRC_TABLES;
 
-    // Process 8 bytes at a time using slicing-by-8.
     let mut chunks = data.chunks_exact(8);
     for chunk in &mut chunks {
         let low = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);

@@ -1,13 +1,9 @@
-//! LZ77 compression algorithm with sliding window.
-//!
-//! LZ77 finds repeated sequences in the input and replaces them with
-//! (length, distance) pairs referring back to previous occurrences.
+//! LZ77 compression with a 32 KiB sliding window.
 
 /// Maximum distance to look back for matches (32KB window).
 pub const MAX_DISTANCE: usize = 32768;
 
-/// Threshold for "good enough" match - skip lazy matching above this length.
-/// This is a common optimization used by zlib to speed up compression.
+/// Threshold for "good enough" match; skip lazy matching beyond this.
 const GOOD_MATCH_LENGTH: usize = 16;
 
 /// Maximum match length (as per DEFLATE spec).
@@ -16,33 +12,18 @@ pub const MAX_MATCH_LENGTH: usize = 258;
 /// Minimum match length worth encoding.
 pub const MIN_MATCH_LENGTH: usize = 3;
 
-/// Size of the hash table (power of 2 for fast modulo).
-/// Enlarged to reduce collisions when using 4-byte hashes.
-const HASH_SIZE: usize = 1 << 16; // 65536 entries
+/// Hash table size (power of two for fast masking).
+const HASH_SIZE: usize = 1 << 16;
 
 /// LZ77 token representing either a literal or a match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
-    /// A literal byte that couldn't be compressed.
     Literal(u8),
-    /// A back-reference: (length, distance).
-    Match {
-        /// Length of the match (3-258).
-        length: u16,
-        /// Distance back to the match (1-32768).
-        distance: u16,
-    },
+    Match { length: u16, distance: u16 },
 }
 
-/// Packed token representation (4 bytes) for cache-friendly encoding paths.
-///
-/// Bit layout:
-/// - Bit 31: LITERAL_FLAG (1 = literal, 0 = match)
-/// - For literals: bits 0-7 contain the byte value
-/// - For matches: bits 0-15 contain length, bits 16-30 contain (distance - 1)
-///
-/// Distance is stored as (distance - 1) so that the range 1-32768 maps to 0-32767,
-/// which fits in 15 bits and avoids collision with the LITERAL_FLAG.
+/// Packed token (4 bytes) for cache-friendly encoding.
+/// Bit 31 marks literals; matches store length in low 16 bits and (distance-1) in the high 15.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PackedToken(u32);
 
@@ -50,30 +31,24 @@ impl PackedToken {
     const LITERAL_FLAG: u32 = 0x8000_0000;
 
     #[inline]
-    /// Create a packed literal token.
     pub fn literal(byte: u8) -> Self {
         Self(Self::LITERAL_FLAG | byte as u32)
     }
 
     #[inline]
-    /// Create a packed match token.
     pub fn match_(length: u16, distance: u16) -> Self {
         debug_assert!(distance >= 1, "Distance must be at least 1");
-        // Store (distance - 1) so range 1-32768 becomes 0-32767, fitting in 15 bits.
-        // This ensures bit 31 is never set for matches, avoiding collision with LITERAL_FLAG.
         let dist_minus_one = (distance - 1) as u32;
         let val = dist_minus_one << 16 | (length as u32);
         Self(val)
     }
 
     #[inline]
-    /// Returns true if this is a literal.
     pub fn is_literal(self) -> bool {
         (self.0 & Self::LITERAL_FLAG) != 0
     }
 
     #[inline]
-    /// Get the literal byte if present.
     pub fn as_literal(self) -> Option<u8> {
         if self.is_literal() {
             Some(self.0 as u8)
@@ -83,20 +58,18 @@ impl PackedToken {
     }
 
     #[inline]
-    /// Get (length, distance) if this is a match.
     pub fn as_match(self) -> Option<(u16, u16)> {
         if self.is_literal() {
             None
         } else {
             let length = (self.0 & 0xFFFF) as u16;
-            // Recover original distance by adding 1 back
             let distance = ((self.0 >> 16) as u16) + 1;
             Some((length, distance))
         }
     }
 }
 
-/// Hash function for 4-byte sequences with better distribution.
+/// Hash 4-byte sequences for better distribution.
 #[inline]
 fn hash4(data: &[u8], pos: usize) -> usize {
     if pos + 3 >= data.len() {
@@ -109,25 +82,17 @@ fn hash4(data: &[u8], pos: usize) -> usize {
 
 /// LZ77 compressor with hash chain for fast matching.
 pub struct Lz77Compressor {
-    /// Hash table: maps hash -> most recent position
     head: Vec<i32>,
-    /// Chain links: prev[pos % window] -> previous position with same hash
     prev: Vec<i32>,
-    /// Compression level (affects search depth)
     max_chain_length: usize,
-    /// Lazy matching: check if next position has better match
     lazy_matching: bool,
 }
 
 impl Lz77Compressor {
-    /// Create a new LZ77 compressor.
-    ///
-    /// # Arguments
-    /// * `level` - Compression level 1-9 (higher = better compression, slower)
+    /// Create a new LZ77 compressor (compression level 1-9).
     pub fn new(level: u8) -> Self {
         let level = level.clamp(1, 9);
 
-        // Tune chain length and lazy matching based on level
         let (max_chain_length, lazy_matching) = match level {
             1 => (4, false),
             2 => (6, false),

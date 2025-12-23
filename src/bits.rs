@@ -24,10 +24,7 @@ impl BitWriter {
     }
 
     /// Write bits to the stream, LSB first.
-    ///
-    /// # Arguments
-    /// * `value` - The value to write (only lower `num_bits` are used)
-    /// * `num_bits` - Number of bits to write (1-32)
+    /// Only the lower `num_bits` of `value` are consumed.
     #[inline]
     pub fn write_bits(&mut self, value: u32, num_bits: u8) {
         debug_assert!(num_bits <= 32);
@@ -39,18 +36,15 @@ impl BitWriter {
             let available = 8 - self.bit_position;
             let to_write = remaining.min(available);
 
-            // Extract the bits we want to write
             let mask = (1u32 << to_write) - 1;
             let bits = (value & mask) as u8;
 
-            // Add to current byte at the correct position
             self.current_byte |= bits << self.bit_position;
 
             self.bit_position += to_write;
             value >>= to_write;
             remaining -= to_write;
 
-            // If byte is full, flush it
             if self.bit_position == 8 {
                 self.buffer.push(self.current_byte);
                 self.current_byte = 0;
@@ -220,8 +214,6 @@ impl BitWriterMsb {
     }
 
     /// Write bits to the stream, MSB first.
-    ///
-    /// Optimized to process multiple bits at once instead of bit-by-bit.
     #[inline]
     pub fn write_bits(&mut self, value: u32, num_bits: u8) {
         debug_assert!(num_bits <= 32);
@@ -233,8 +225,6 @@ impl BitWriterMsb {
             let space = self.bit_position;
             let to_write = remaining.min(space);
 
-            // Extract the top `to_write` bits from the remaining value
-            // and place them in the current byte at the correct position
             let shift = remaining - to_write;
             let mask = (1u32 << to_write) - 1;
             let bits = ((val >> shift) & mask) as u8;
@@ -243,7 +233,6 @@ impl BitWriterMsb {
             self.current_byte |= bits << self.bit_position;
             remaining -= to_write;
 
-            // If byte is full, flush it with JPEG byte stuffing
             if self.bit_position == 0 {
                 self.flush_byte_with_stuffing();
             }
@@ -318,15 +307,14 @@ mod tests {
     #[test]
     fn test_bit_writer_single_bits() {
         let mut writer = BitWriter::new();
-        // Write 8 bits: 10110100 LSB first
-        writer.write_bit(false); // bit 0
-        writer.write_bit(false); // bit 1
-        writer.write_bit(true); // bit 2
-        writer.write_bit(false); // bit 3
-        writer.write_bit(true); // bit 4
-        writer.write_bit(true); // bit 5
-        writer.write_bit(false); // bit 6
-        writer.write_bit(true); // bit 7
+        writer.write_bit(false);
+        writer.write_bit(false);
+        writer.write_bit(true);
+        writer.write_bit(false);
+        writer.write_bit(true);
+        writer.write_bit(true);
+        writer.write_bit(false);
+        writer.write_bit(true);
 
         let result = writer.finish();
         assert_eq!(result, vec![0b10110100]);
@@ -369,7 +357,6 @@ mod tests {
         writer.write_bits(0b101, 3);
 
         let result = writer.finish();
-        // MSB first, padded with 1s: 101_11111 = 0xBF
         assert_eq!(result, vec![0b10111111]);
     }
 }

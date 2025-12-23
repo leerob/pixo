@@ -1,36 +1,29 @@
 //! Discrete Cosine Transform (DCT) implementation for JPEG.
 //!
-//! Uses the AAN (Arai-Agui-Nakajima) fast DCT algorithm for efficiency.
-//! The AAN algorithm uses only 5 multiplications and 29 additions per 8-point DCT,
-//! compared to 64 multiplications in the naive approach.
+//! Uses the AAN (Arai-Agui-Nakajima) fast DCT algorithm.
 
 use std::f32::consts::{FRAC_1_SQRT_2, PI};
 
-// AAN DCT constants - precomputed trigonometric values
-// These are the scale factors for the AAN algorithm
-const A1: f32 = FRAC_1_SQRT_2; // cos(4*pi/16) = 1/sqrt(2)
-const A2: f32 = 0.541_196_1; // cos(6*pi/16) - cos(2*pi/16)
-const A3: f32 = FRAC_1_SQRT_2; // cos(4*pi/16) = 1/sqrt(2)
-const A4: f32 = 1.306_562_9; // cos(2*pi/16) + cos(6*pi/16)
-const A5: f32 = 0.382_683_43; // cos(6*pi/16)
+// AAN DCT constants (precomputed trig values)
+const A1: f32 = FRAC_1_SQRT_2;
+const A2: f32 = 0.541_196_1;
+const A3: f32 = FRAC_1_SQRT_2;
+const A4: f32 = 1.306_562_9;
+const A5: f32 = 0.382_683_43;
 
-// Post-scaling factors for the AAN algorithm to produce correctly normalized DCT output
-// These are: s[k] = 1/(4 * c[k]) where c[k] = cos(k*pi/16) for k > 0, c[0] = 1/sqrt(2)
+// Post-scaling factors for normalized DCT output
 const S: [f32; 8] = [
-    0.353_553_4, // 1/(2*sqrt(2))
-    0.254_897_8, // 1/(4*cos(pi/16))
-    0.270_598_1, // 1/(4*cos(2*pi/16))
-    0.300_672_4, // 1/(4*cos(3*pi/16))
-    0.353_553_4, // 1/(4*cos(4*pi/16)) = 1/(2*sqrt(2))
-    0.449_988_1, // 1/(4*cos(5*pi/16))
-    0.653_281_5, // 1/(4*cos(6*pi/16))
-    1.281_457_8, // 1/(4*cos(7*pi/16))
+    0.353_553_4,
+    0.254_897_8,
+    0.270_598_1,
+    0.300_672_4,
+    0.353_553_4,
+    0.449_988_1,
+    0.653_281_5,
+    1.281_457_8,
 ];
 
-/// Perform 2D DCT on an 8x8 block using AAN fast DCT algorithm.
-///
-/// Uses the separable property: 2D DCT = 1D DCT on rows, then 1D DCT on columns.
-/// Each 1D DCT uses the AAN algorithm with only 5 multiplications.
+/// Perform 2D DCT on an 8x8 block using the AAN fast algorithm.
 pub fn dct_2d(block: &[f32; 64]) -> [f32; 64] {
     let mut temp = [0.0f32; 64];
     let mut result = [0.0f32; 64];
@@ -63,10 +56,6 @@ pub fn dct_2d(block: &[f32; 64]) -> [f32; 64] {
 }
 
 /// Perform 1D DCT on 8 values using the AAN algorithm.
-///
-/// The AAN algorithm uses only 5 multiplications and 29 additions,
-/// compared to 64 multiplications in the naive O(n²) approach.
-/// Based on: Arai, Agui, and Nakajima, "A Fast DCT-SQ Scheme for Images", 1988.
 #[inline]
 fn aan_dct_1d(data: &mut [f32; 8]) {
     // Stage 1: Initial butterfly operations

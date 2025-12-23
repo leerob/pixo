@@ -43,15 +43,8 @@ impl ColorType {
     }
 }
 
-/// Convert RGB to YCbCr color space (used by JPEG).
-///
-/// Returns (Y, Cb, Cr) where each component is in range 0-255.
-/// Uses fixed-point integer arithmetic for performance (no floating point).
-///
-/// ITU-R BT.601 conversion coefficients scaled by 256:
-/// - Y  = 0.299*R + 0.587*G + 0.114*B  -> (77*R + 150*G + 29*B + 128) >> 8
-/// - Cb = -0.169*R - 0.331*G + 0.5*B + 128
-/// - Cr = 0.5*R - 0.419*G - 0.081*B + 128
+/// Convert RGB to YCbCr (ITU-R BT.601) using fixed-point math.
+/// Coefficients are scaled by 256 with +128 for rounding.
 #[inline]
 pub fn rgb_to_ycbcr(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
     let r = r as i32;

@@ -51,7 +51,6 @@ impl QuantizationTables {
         let mut chrominance_table = [0.0f32; 64];
 
         for i in 0..64 {
-            // Scale and clamp to 1-255
             let lum_val =
                 ((STD_LUMINANCE_TABLE[ZIGZAG[i]] as u32 * scale + 50) / 100).clamp(1, 255);
             let chrom_val =
@@ -61,7 +60,6 @@ impl QuantizationTables {
             chrominance[i] = chrom_val as u8;
         }
 
-        // Create tables in natural (non-zigzag) order for computation
         for i in 0..64 {
             let lum_val = ((STD_LUMINANCE_TABLE[i] as u32 * scale + 50) / 100).clamp(1, 255);
             let chrom_val = ((STD_CHROMINANCE_TABLE[i] as u32 * scale + 50) / 100).clamp(1, 255);
@@ -113,12 +111,11 @@ mod tests {
     #[test]
     fn test_quantize_block() {
         let mut dct = [0.0f32; 64];
-        dct[0] = 160.0; // DC component
+        dct[0] = 160.0;
 
         let tables = QuantizationTables::with_quality(75);
         let quantized = quantize_block(&dct, &tables.luminance_table);
 
-        // DC should be quantized
         assert_ne!(quantized[0], 0);
     }
 
@@ -127,13 +124,11 @@ mod tests {
         let q50 = QuantizationTables::with_quality(50);
         let q90 = QuantizationTables::with_quality(90);
 
-        // Higher quality = smaller quantization values = less loss
         assert!(q90.luminance[0] < q50.luminance[0]);
     }
 
     #[test]
     fn test_zigzag_order() {
-        // First few zigzag indices should be: 0, 1, 8, 16, 9, 2, ...
         assert_eq!(ZIGZAG[0], 0);
         assert_eq!(ZIGZAG[1], 1);
         assert_eq!(ZIGZAG[2], 8);
@@ -145,15 +140,14 @@ mod tests {
     #[test]
     fn test_zigzag_reorder() {
         let mut block = [0i16; 64];
-        block[0] = 100; // DC
+        block[0] = 100;
         block[1] = 50;
         block[8] = 30;
 
         let reordered = zigzag_reorder(&block);
 
-        // After zigzag, positions should be rearranged
-        assert_eq!(reordered[0], 100); // DC stays at 0
-        assert_eq!(reordered[1], 50); // Position 1 in zigzag is position 1 in natural
-        assert_eq!(reordered[2], 30); // Position 2 in zigzag is position 8 in natural
+        assert_eq!(reordered[0], 100);
+        assert_eq!(reordered[1], 50);
+        assert_eq!(reordered[2], 30);
     }
 }

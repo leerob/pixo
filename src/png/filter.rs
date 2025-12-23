@@ -46,9 +46,7 @@ const FILTER_UP: u8 = 2;
 const FILTER_AVERAGE: u8 = 3;
 const FILTER_PAETH: u8 = 4;
 
-/// Apply PNG filtering to raw image data.
-///
-/// Returns filtered data with a filter type byte prepended to each row.
+/// Apply PNG filtering to raw image data, prefixing each row with its filter byte.
 pub fn apply_filters(
     data: &[u8],
     width: u32,
@@ -57,14 +55,11 @@ pub fn apply_filters(
     options: &PngOptions,
 ) -> Vec<u8> {
     let row_bytes = width as usize * bytes_per_pixel;
-    let filtered_row_size = row_bytes + 1; // +1 for filter type byte
+    let filtered_row_size = row_bytes + 1;
     let zero_row = vec![0u8; row_bytes];
 
-    // Height-aware strategy tweaks: for tall images, favor sampled adaptive to
-    // reduce per-row work while preserving quality.
     let mut strategy = options.filter_strategy;
     let area = (width as usize).saturating_mul(height as usize);
-    // For very small images, prefer Sub filter to minimize CPU overhead.
     if area <= 4096
         && matches!(
             strategy,
@@ -77,9 +72,6 @@ pub fn apply_filters(
         strategy = FilterStrategy::AdaptiveSampled { interval };
     }
 
-    // Fast high-entropy detection: if the first row has almost no identical
-    // neighboring bytes (indicative of noisy data) and the image is reasonably
-    // large, skip adaptive filtering entirely and use None to save scoring work.
     if area >= 16_384
         && matches!(
             strategy,
@@ -94,10 +86,8 @@ pub fn apply_filters(
         }
     }
 
-    // Parallel path (only for adaptive; other strategies are trivial)
     #[cfg(feature = "parallel")]
     {
-        // Parallel gains when rows are numerous; avoid overhead on tiny images.
         if height > 32
             && matches!(
                 strategy,
@@ -117,12 +107,10 @@ pub fn apply_filters(
         }
     }
 
-    // Sequential path
     let mut output = Vec::with_capacity(filtered_row_size * height as usize);
     let mut prev_row: &[u8] = &zero_row;
     let mut adaptive_scratch = AdaptiveScratch::new(row_bytes);
     let mut last_filter: u8 = FILTER_PAETH; // default guess for sampled reuse
-                                            // Track last used filter to bias adaptive_fast toward recent winner.
     let mut last_adaptive_filter: Option<u8> = None;
 
     for y in 0..height as usize {
@@ -132,7 +120,6 @@ pub fn apply_filters(
             FilterStrategy::AdaptiveSampled { interval } if interval > 1 => {
                 let interval = interval.max(1) as usize;
                 let prev = if y == 0 { &zero_row[..] } else { prev_row };
-                // Dynamic interval: more sampling on small images, coarser on tall images.
                 let eff_interval = if height as usize > 512 {
                     interval.max(4)
                 } else {
@@ -199,7 +186,6 @@ pub fn apply_filters(
             }
         }
 
-        // Update previous row reference
         prev_row = row;
     }
 

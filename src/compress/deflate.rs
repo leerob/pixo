@@ -13,24 +13,20 @@ use std::thread_local;
 use std::time::Duration;
 use std::time::Instant;
 
-/// Length code base values (codes 257-285).
 const LENGTH_BASE: [u16; 29] = [
     3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
     163, 195, 227, 258,
 ];
 
-/// Extra bits for length codes.
 const LENGTH_EXTRA: [u8; 29] = [
     0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
 ];
 
-/// Distance code base values (codes 0-29).
 const DISTANCE_BASE: [u16; 30] = [
     1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
     2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
 ];
 
-/// Extra bits for distance codes.
 const DISTANCE_EXTRA: [u8; 30] = [
     0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13,
     13,
@@ -75,14 +71,12 @@ impl Default for DeflateStats {
     }
 }
 
-/// Lookup table for length codes: maps length (3-258) to (symbol, extra_bits).
-/// Index is (length - 3), value is (symbol - 257, extra_bits).
+/// Lookup table for length codes: (length-3) -> (symbol offset, extra_bits).
 const LENGTH_LOOKUP: [(u8, u8); 256] = {
     let mut table = [(0u8, 0u8); 256];
     let mut i = 0usize;
     while i < 256 {
         let length = i + 3;
-        // Find the appropriate code
         let mut code_idx = 0usize;
         while code_idx < 28 {
             if length >= LENGTH_BASE[code_idx] as usize
@@ -92,24 +86,21 @@ const LENGTH_LOOKUP: [(u8, u8); 256] = {
             }
             code_idx += 1;
         }
-        // code_idx 28 is for length 258
         table[i] = (code_idx as u8, LENGTH_EXTRA[code_idx]);
         i += 1;
     }
     table
 };
 
-/// Threshold (in tokens) above which we skip fixed-Huffman encoding and go
-/// straight to dynamic codes to avoid double-encoding overhead on large
-/// payloads (common for PNG scanlines).
+/// Above this token count, skip fixed-Huffman to avoid double-encoding large payloads.
 const DYNAMIC_ONLY_TOKEN_THRESHOLD: usize = 128;
 /// Below this token count, prefer fixed Huffman only to avoid double encoding.
 const FIXED_ONLY_TOKEN_THRESHOLD: usize = 128;
 /// Below this byte length, favor a simpler path and optionally skip dynamic Huffman.
 const SMALL_INPUT_BYTES: usize = 1 << 10; // 1 KiB
-/// Above this size and with high-entropy detection, skip LZ77/Huffman and emit stored blocks.
+/// Above this size with high entropy, skip LZ77/Huffman and emit stored blocks.
 const HIGH_ENTROPY_BAIL_BYTES: usize = 4 * 1024;
-/// When input has only literals (no matches) and meets this size, prefer stored blocks immediately.
+/// When input has only literals and meets this size, prefer stored blocks immediately.
 const STORED_LITERAL_ONLY_BYTES: usize = 8 * 1024;
 
 thread_local! {
@@ -181,8 +172,7 @@ fn encode_best_huffman_packed(tokens: &[PackedToken], est_bytes: usize) -> (Vec<
     }
 }
 
-/// Lookup table for distance codes: maps distance (1-32768) to code index.
-/// Uses a two-level approach for efficiency.
+/// Lookup table for distance codes using a two-level approach.
 const DISTANCE_LOOKUP_SMALL: [u8; 512] = {
     let mut table = [0u8; 512];
     let mut i = 1usize;
@@ -201,7 +191,6 @@ const DISTANCE_LOOKUP_SMALL: [u8; 512] = {
 };
 
 /// Get the length code (257-285) for a match length.
-/// Uses a lookup table for O(1) performance.
 #[inline]
 fn length_code(length: u16) -> (u16, u8, u16) {
     debug_assert!(
@@ -217,22 +206,16 @@ fn length_code(length: u16) -> (u16, u8, u16) {
 }
 
 /// Get the distance code (0-29) for a match distance.
-/// Uses lookup table for small distances, bit manipulation for large.
 #[inline]
 fn distance_code(distance: u16) -> (u16, u8, u16) {
     debug_assert!((1..=32768).contains(&distance), "Invalid distance");
 
     let code_idx = if distance < 512 {
-        // Use direct lookup for small distances (covers codes 0-17)
         DISTANCE_LOOKUP_SMALL[distance as usize] as usize
     } else {
-        // For larger distances (512+), use bit manipulation
-        // The pattern for distance codes 4+ is:
-        // code = 2 * floor(log2(distance - 1)) + second_highest_bit
-        // where second_highest_bit is the bit below the MSB of (distance - 1)
         let d = distance as u32 - 1;
-        let msb = 31 - d.leading_zeros(); // position of highest set bit
-        let second_bit = (d >> (msb - 1)) & 1; // second highest bit
+        let msb = 31 - d.leading_zeros();
+        let second_bit = (d >> (msb - 1)) & 1;
         let code = (2 * msb + second_bit) as usize;
         code.min(29)
     };
@@ -242,22 +225,13 @@ fn distance_code(distance: u16) -> (u16, u8, u16) {
     (code_idx as u16, extra_bits, extra_value)
 }
 
-/// Compress data using DEFLATE algorithm.
-///
-/// # Arguments
-/// * `data` - Raw data to compress
-/// * `level` - Compression level 1-9
-///
-/// # Returns
-/// Compressed data in raw DEFLATE format (no zlib/gzip wrapper).
+/// Compress data using raw DEFLATE (no zlib/gzip wrapper).
 pub fn deflate(data: &[u8], level: u8) -> Vec<u8> {
     if data.is_empty() {
-        // Empty input: just output empty final block
         let mut writer = BitWriter64::with_capacity(16);
         writer.write_bits(1, 1); // BFINAL = 1
         writer.write_bits(1, 2); // BTYPE = 01 (fixed Huffman)
 
-        // Write end-of-block symbol (256)
         let lit_codes = huffman::fixed_literal_codes();
         let code = lit_codes[256];
         writer.write_bits(reverse_bits(code.code, code.length), code.length);
@@ -603,17 +577,13 @@ impl Deflater {
     }
 }
 
-/// Compress data using DEFLATE and return encoded bytes plus timing/accounting stats.
-///
-/// This leaves the main `deflate` fast path unchanged; callers opt-in to the
-/// additional instrumentation by using this entrypoint.
+/// Compress data and return bytes plus timing/accounting stats.
 pub fn deflate_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
     if data.is_empty() {
         let mut writer = BitWriter64::with_capacity(16);
         writer.write_bits(1, 1); // BFINAL = 1
         writer.write_bits(1, 2); // BTYPE = 01 (fixed Huffman)
 
-        // Write end-of-block symbol (256)
         let lit_codes = huffman::fixed_literal_codes();
         let code = lit_codes[256];
         writer.write_bits(reverse_bits(code.code, code.length), code.length);
@@ -627,7 +597,6 @@ pub fn deflate_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
         );
     }
 
-    // LZ77 tokenization
     let t0 = Instant::now();
     let mut lz77 = Lz77Compressor::new(level);
     let tokens = lz77.compress(data);
@@ -635,13 +604,11 @@ pub fn deflate_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
 
     let (literal_count, match_count) = token_counts(&tokens);
 
-    // Fixed Huffman encode
     let t1 = Instant::now();
     let est_bytes = estimated_deflate_size(data.len(), level);
 
     let (encoded, fixed_time, dynamic_time, choose_time, use_dynamic) =
         if tokens.len() >= DYNAMIC_ONLY_TOKEN_THRESHOLD {
-            // Skip fixed encode for large inputs to avoid double work.
             let t_dyn_start = Instant::now();
             let dynamic = encode_dynamic_huffman_with_capacity(&tokens, est_bytes);
             let dynamic_time = t_dyn_start.elapsed();
@@ -650,12 +617,10 @@ pub fn deflate_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
             let fixed = encode_fixed_huffman_with_capacity(&tokens, est_bytes);
             let fixed_time = t1.elapsed();
 
-            // Dynamic Huffman encode
             let t2 = Instant::now();
             let dynamic = encode_dynamic_huffman_with_capacity(&tokens, est_bytes);
             let dynamic_time = t2.elapsed();
 
-            // Choose smaller stream
             let choose_start = Instant::now();
             let use_dynamic = dynamic.len() < fixed.len();
             let encoded = if use_dynamic { dynamic } else { fixed };
@@ -680,8 +645,6 @@ pub fn deflate_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
 }
 
 /// Compress data and wrap it in a zlib container (RFC 1950).
-///
-/// Produces: zlib header (CMF/FLG), deflate stream, Adler-32 checksum.
 pub fn deflate_zlib(data: &[u8], level: u8) -> Vec<u8> {
     if data.len() >= HIGH_ENTROPY_BAIL_BYTES && is_high_entropy_data(data) {
         return deflate_zlib_stored(data, level);
@@ -707,9 +670,8 @@ fn deflate_zlib_stored(data: &[u8], level: u8) -> Vec<u8> {
     output
 }
 
-/// Compress data using DEFLATE in a zlib container, returning encoded bytes plus stats.
+/// Compress data in a zlib container, returning bytes plus stats.
 pub fn deflate_zlib_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
-    // Empty input mirrors `deflate_zlib`
     if data.is_empty() {
         let mut output = Vec::with_capacity(8);
         output.extend_from_slice(&zlib_header(level));
@@ -721,7 +683,6 @@ pub fn deflate_zlib_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats
         return (output, stats);
     }
 
-    // High-entropy fast path: skip LZ77/Huffman and emit stored blocks directly.
     if data.len() >= HIGH_ENTROPY_BAIL_BYTES && is_high_entropy_data(data) {
         let mut output = Vec::with_capacity(data.len() + 16);
         output.extend_from_slice(&zlib_header(level));

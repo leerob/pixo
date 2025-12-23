@@ -26,16 +26,7 @@ const SOF0: u16 = 0xFFC0; // Start of Frame (baseline DCT)
 const DHT: u16 = 0xFFC4; // Define Huffman Table
 const SOS: u16 = 0xFFDA; // Start of Scan
 
-/// Encode raw pixel data as JPEG.
-///
-/// # Arguments
-/// * `data` - Raw pixel data (RGB, row-major order)
-/// * `width` - Image width in pixels
-/// * `height` - Image height in pixels
-/// * `quality` - Quality level 1-100 (higher = better quality, larger file)
-///
-/// # Returns
-/// Complete JPEG file as bytes.
+/// Encode raw RGB pixel data as JPEG.
 pub fn encode(data: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>> {
     let options = JpegOptions {
         quality,
@@ -134,9 +125,6 @@ pub fn encode_with_options(
 }
 
 /// Encode raw pixel data as JPEG with options into a caller-provided buffer.
-///
-/// The `output` buffer will be cleared and reused, allowing callers to avoid
-/// repeated allocations across multiple encodes.
 pub fn encode_with_options_into(
     output: &mut Vec<u8>,
     data: &[u8],
@@ -146,7 +134,6 @@ pub fn encode_with_options_into(
     color_type: ColorType,
     options: &JpegOptions,
 ) -> Result<()> {
-    // Validate quality
     if options.quality == 0 || options.quality > 100 {
         return Err(Error::InvalidQuality(options.quality));
     }
@@ -154,7 +141,6 @@ pub fn encode_with_options_into(
         return Err(Error::InvalidQuality(0)); // reuse quality error type for invalid param
     }
 
-    // Validate dimensions
     if width == 0 || height == 0 {
         return Err(Error::InvalidDimensions { width, height });
     }
@@ -167,14 +153,12 @@ pub fn encode_with_options_into(
         });
     }
 
-    // Validate color type (JPEG only supports RGB and Gray)
     let bytes_per_pixel = match color_type {
         ColorType::Rgb => 3,
         ColorType::Gray => 1,
         _ => return Err(Error::UnsupportedColorType),
     };
 
-    // Validate data length
     let expected_len = width as usize * height as usize * bytes_per_pixel;
     if data.len() != expected_len {
         return Err(Error::InvalidDataLength {
@@ -186,11 +170,9 @@ pub fn encode_with_options_into(
     output.clear();
     output.reserve(expected_len / 4);
 
-    // Create quantization and Huffman tables
     let quant_tables = QuantizationTables::with_quality(options.quality);
     let huff_tables = HuffmanTables::default();
 
-    // Write JPEG headers
     write_soi(output);
     write_app0(output);
     write_dqt(output, &quant_tables);
@@ -200,7 +182,6 @@ pub fn encode_with_options_into(
         write_dri(output, interval);
     }
 
-    // Write scan data
     write_sos(output, color_type);
     encode_scan(
         output,
@@ -214,7 +195,6 @@ pub fn encode_with_options_into(
         &huff_tables,
     );
 
-    // Write end marker
     write_eoi(output);
 
     Ok(())
@@ -230,30 +210,16 @@ fn write_eoi(output: &mut Vec<u8>) {
     output.extend_from_slice(&EOI.to_be_bytes());
 }
 
-/// Write APP0 (JFIF) marker.
 fn write_app0(output: &mut Vec<u8>) {
     output.extend_from_slice(&APP0.to_be_bytes());
 
-    // Length (16 bytes including length field)
     output.extend_from_slice(&16u16.to_be_bytes());
-
-    // JFIF identifier
     output.extend_from_slice(b"JFIF\0");
-
-    // Version 1.01
     output.push(1);
     output.push(1);
-
-    // Units: 0 = no units (aspect ratio only)
     output.push(0);
-
-    // X density
     output.extend_from_slice(&1u16.to_be_bytes());
-
-    // Y density
     output.extend_from_slice(&1u16.to_be_bytes());
-
-    // Thumbnail dimensions (0x0 = no thumbnail)
     output.push(0);
     output.push(0);
 }
@@ -292,85 +258,60 @@ fn write_sof0(
     let length = 8 + 3 * num_components;
     output.extend_from_slice(&(length as u16).to_be_bytes());
 
-    // Precision: 8 bits
     output.push(8);
 
-    // Height and width
     output.extend_from_slice(&(height as u16).to_be_bytes());
     output.extend_from_slice(&(width as u16).to_be_bytes());
 
-    // Number of components
     output.push(num_components);
 
     if num_components == 1 {
-        // Grayscale: 1 component
-        output.push(1); // Component ID
-        output.push(0x11); // Sampling factor (1x1)
-        output.push(0); // Quantization table 0
+        output.push(1);
+        output.push(0x11);
+        output.push(0);
     } else {
-        // YCbCr: 3 components
-        // Y component
-        output.push(1); // Component ID
+        output.push(1);
         let y_sampling = match subsampling {
-            Subsampling::S444 => 0x11, // H=1, V=1
-            Subsampling::S420 => 0x22, // H=2, V=2
+            Subsampling::S444 => 0x11,
+            Subsampling::S420 => 0x22,
         };
         output.push(y_sampling);
-        output.push(0); // Quantization table 0 (luminance)
+        output.push(0);
 
-        // Cb component
         output.push(2);
         output.push(0x11);
-        output.push(1); // Quantization table 1 (chrominance)
+        output.push(1);
 
-        // Cr component
         output.push(3);
         output.push(0x11);
         output.push(1);
     }
 }
 
-/// Write DHT (Define Huffman Table) marker.
 fn write_dht(output: &mut Vec<u8>, tables: &HuffmanTables) {
-    // DC luminance
     write_huffman_table(output, 0x00, &tables.dc_lum_bits, &tables.dc_lum_vals);
-
-    // DC chrominance
     write_huffman_table(output, 0x01, &tables.dc_chrom_bits, &tables.dc_chrom_vals);
-
-    // AC luminance
     write_huffman_table(output, 0x10, &tables.ac_lum_bits, &tables.ac_lum_vals);
-
-    // AC chrominance
     write_huffman_table(output, 0x11, &tables.ac_chrom_bits, &tables.ac_chrom_vals);
 }
 
-/// Write DRI (Define Restart Interval) marker.
 fn write_dri(output: &mut Vec<u8>, interval: u16) {
     output.extend_from_slice(&0xFFDDu16.to_be_bytes());
-    output.extend_from_slice(&4u16.to_be_bytes()); // length = 4
+    output.extend_from_slice(&4u16.to_be_bytes());
     output.extend_from_slice(&interval.to_be_bytes());
 }
 
-/// Write a single Huffman table.
 fn write_huffman_table(output: &mut Vec<u8>, table_id: u8, bits: &[u8; 16], vals: &[u8]) {
     output.extend_from_slice(&DHT.to_be_bytes());
 
-    // Length: 2 + 1 + 16 + num_values
     let length = 2 + 1 + 16 + vals.len();
     output.extend_from_slice(&(length as u16).to_be_bytes());
 
-    // Table class and ID
     output.push(table_id);
-
-    // Number of codes of each length
     output.extend_from_slice(bits);
-
-    // Values
     output.extend_from_slice(vals);
 }
 
-/// Write SOS (Start of Scan) marker.
 fn write_sos(output: &mut Vec<u8>, color_type: ColorType) {
     output.extend_from_slice(&SOS.to_be_bytes());
 
@@ -379,34 +320,28 @@ fn write_sos(output: &mut Vec<u8>, color_type: ColorType) {
         _ => 3,
     };
 
-    // Length: 6 + 2*num_components
     let length = 6 + 2 * num_components;
     output.extend_from_slice(&(length as u16).to_be_bytes());
 
-    // Number of components
     output.push(num_components);
 
     if num_components == 1 {
-        output.push(1); // Component ID
-        output.push(0x00); // DC/AC table selectors
+        output.push(1);
+        output.push(0x00);
     } else {
-        // Y component: DC table 0, AC table 0
         output.push(1);
         output.push(0x00);
 
-        // Cb component: DC table 1, AC table 1
         output.push(2);
         output.push(0x11);
 
-        // Cr component: DC table 1, AC table 1
         output.push(3);
         output.push(0x11);
     }
 
-    // Spectral selection and successive approximation
-    output.push(0); // Start of spectral selection
-    output.push(63); // End of spectral selection
-    output.push(0); // Successive approximation
+    output.push(0);
+    output.push(63);
+    output.push(0);
 }
 
 /// Encode the image scan data.
