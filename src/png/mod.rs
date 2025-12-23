@@ -8,7 +8,8 @@ pub mod filter;
 use crate::color::ColorType;
 use crate::compress::deflate::deflate_zlib_packed;
 #[cfg(feature = "timing")]
-use crate::compress::deflate::{deflate_zlib_packed_with_stats, DeflateStats};
+use crate::compress::deflate::deflate_zlib_packed_with_stats;
+use crate::compress::deflate::DeflateStats;
 use crate::error::{Error, Result};
 
 /// PNG file signature (magic bytes).
@@ -24,6 +25,8 @@ pub struct PngOptions {
     pub compression_level: u8,
     /// Filter selection strategy.
     pub filter_strategy: FilterStrategy,
+    /// Palette quantization options (off by default).
+    pub quantization: QuantizationOptions,
 }
 
 impl Default for PngOptions {
@@ -33,6 +36,8 @@ impl Default for PngOptions {
             compression_level: 2,
             // AdaptiveFast reduces per-row work with minimal compression impact.
             filter_strategy: FilterStrategy::AdaptiveFast,
+            // Quantization off by default to preserve lossless output.
+            quantization: QuantizationOptions::default(),
         }
     }
 }
@@ -43,6 +48,7 @@ impl PngOptions {
         Self {
             compression_level: 2,
             filter_strategy: FilterStrategy::AdaptiveFast,
+            quantization: QuantizationOptions::default(),
         }
     }
 
@@ -51,6 +57,7 @@ impl PngOptions {
         Self {
             compression_level: 6,
             filter_strategy: FilterStrategy::Adaptive,
+            quantization: QuantizationOptions::default(),
         }
     }
 
@@ -59,6 +66,39 @@ impl PngOptions {
         Self {
             compression_level: 9,
             filter_strategy: FilterStrategy::AdaptiveSampled { interval: 2 },
+            quantization: QuantizationOptions::default(),
+        }
+    }
+}
+
+/// Quantization mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuantizationMode {
+    /// Disable palette quantization (lossless path).
+    Off,
+    /// Apply quantization when possible/beneficial for PNG (auto).
+    Auto,
+    /// Force quantization regardless of heuristics.
+    Force,
+}
+
+/// Options controlling palette quantization.
+#[derive(Debug, Clone)]
+pub struct QuantizationOptions {
+    /// Strategy: Off/Auto/Force.
+    pub mode: QuantizationMode,
+    /// Maximum palette size (1-256).
+    pub max_colors: u16,
+    /// Enable Floyd–Steinberg dithering (on RGB channels only).
+    pub dithering: bool,
+}
+
+impl Default for QuantizationOptions {
+    fn default() -> Self {
+        Self {
+            mode: QuantizationMode::Off,
+            max_colors: 256,
+            dithering: false,
         }
     }
 }
@@ -170,21 +210,7 @@ pub fn encode_indexed_into(
     transparency: Option<&[u8]>,
     options: &PngOptions,
 ) -> Result<()> {
-    if !(1..=9).contains(&options.compression_level) {
-        return Err(Error::InvalidCompressionLevel(options.compression_level));
-    }
-
-    if width == 0 || height == 0 {
-        return Err(Error::InvalidDimensions { width, height });
-    }
-
-    if width > MAX_DIMENSION || height > MAX_DIMENSION {
-        return Err(Error::ImageTooLarge {
-            width,
-            height,
-            max: MAX_DIMENSION,
-        });
-    }
+    validate_common(width, height, options)?;
 
     let palette_len = palette.len();
     if palette_len == 0 || palette_len > 256 {
@@ -261,55 +287,7 @@ pub fn encode_into(
     color_type: ColorType,
     options: &PngOptions,
 ) -> Result<()> {
-    if !(1..=9).contains(&options.compression_level) {
-        return Err(Error::InvalidCompressionLevel(options.compression_level));
-    }
-
-    // Validate dimensions
-    if width == 0 || height == 0 {
-        return Err(Error::InvalidDimensions { width, height });
-    }
-
-    if width > MAX_DIMENSION || height > MAX_DIMENSION {
-        return Err(Error::ImageTooLarge {
-            width,
-            height,
-            max: MAX_DIMENSION,
-        });
-    }
-
-    // Validate data length
-    let bytes_per_pixel = color_type.bytes_per_pixel();
-    let expected_len = width as usize * height as usize * bytes_per_pixel;
-    if data.len() != expected_len {
-        return Err(Error::InvalidDataLength {
-            expected: expected_len,
-            actual: data.len(),
-        });
-    }
-
-    output.clear();
-
-    // Estimate output size (compressed data + overhead)
-    output.reserve(expected_len / 2 + 1024);
-
-    // Write PNG signature
-    output.extend_from_slice(&PNG_SIGNATURE);
-
-    // Write IHDR chunk
-    write_ihdr(output, width, height, color_type);
-
-    // Apply filtering and compression
-    let filtered = filter::apply_filters(data, width, height, bytes_per_pixel, options);
-    let compressed = deflate_zlib_packed(&filtered, options.compression_level);
-
-    // Write IDAT chunk(s)
-    write_idat_chunks(output, &compressed);
-
-    // Write IEND chunk
-    write_iend(output);
-
-    Ok(())
+    encode_internal(output, data, width, height, color_type, options, false)
 }
 
 /// Encode raw pixel data as PNG into a caller-provided buffer, returning DEFLATE timing stats.
@@ -325,41 +303,10 @@ pub fn encode_into_with_stats(
     color_type: ColorType,
     options: &PngOptions,
 ) -> Result<DeflateStats> {
-    if !(1..=9).contains(&options.compression_level) {
-        return Err(Error::InvalidCompressionLevel(options.compression_level));
-    }
-
-    if width == 0 || height == 0 {
-        return Err(Error::InvalidDimensions { width, height });
-    }
-
-    if width > MAX_DIMENSION || height > MAX_DIMENSION {
-        return Err(Error::ImageTooLarge {
-            width,
-            height,
-            max: MAX_DIMENSION,
-        });
-    }
-
-    let bytes_per_pixel = color_type.bytes_per_pixel();
-    let expected_len = width as usize * height as usize * bytes_per_pixel;
-    if data.len() != expected_len {
-        return Err(Error::InvalidDataLength {
-            expected: expected_len,
-            actual: data.len(),
-        });
-    }
-
-    output.clear();
-    output.reserve(expected_len / 2 + 1024);
-    output.extend_from_slice(&PNG_SIGNATURE);
-    write_ihdr(output, width, height, color_type);
-
-    let filtered = filter::apply_filters(data, width, height, bytes_per_pixel, options);
-    let (compressed, stats) = deflate_zlib_packed_with_stats(&filtered, options.compression_level);
-    write_idat_chunks(output, &compressed);
-    write_iend(output);
-
+    let mut stats = DeflateStats::default();
+    encode_internal_with_stats(
+        output, data, width, height, color_type, options, true, &mut stats,
+    )?;
     Ok(stats)
 }
 
@@ -418,6 +365,41 @@ fn write_trns_chunk(output: &mut Vec<u8>, alpha: &[u8]) {
     chunk::write_chunk(output, b"tRNS", alpha);
 }
 
+fn validate_common(width: u32, height: u32, options: &PngOptions) -> Result<()> {
+    if !(1..=9).contains(&options.compression_level) {
+        return Err(Error::InvalidCompressionLevel(options.compression_level));
+    }
+
+    if width == 0 || height == 0 {
+        return Err(Error::InvalidDimensions { width, height });
+    }
+
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::ImageTooLarge {
+            width,
+            height,
+            max: MAX_DIMENSION,
+        });
+    }
+    Ok(())
+}
+
+fn maybe_trim_transparency(alpha: &[u8]) -> Option<Vec<u8>> {
+    if alpha.is_empty() {
+        return None;
+    }
+    if alpha.iter().all(|&a| a == 255) {
+        return None;
+    }
+    let mut last = 0usize;
+    for (i, &a) in alpha.iter().enumerate() {
+        if a != 255 {
+            last = i;
+        }
+    }
+    Some(alpha[..=last].to_vec())
+}
+
 /// Write IDAT (image data) chunks.
 fn write_idat_chunks(output: &mut Vec<u8>, compressed: &[u8]) {
     // Write in larger chunks to reduce per-chunk overhead (CRC/length)
@@ -431,6 +413,453 @@ fn write_idat_chunks(output: &mut Vec<u8>, compressed: &[u8]) {
 /// Write IEND (image end) chunk.
 fn write_iend(output: &mut Vec<u8>) {
     chunk::write_chunk(output, b"IEND", &[]);
+}
+
+fn encode_internal(
+    output: &mut Vec<u8>,
+    data: &[u8],
+    width: u32,
+    height: u32,
+    color_type: ColorType,
+    options: &PngOptions,
+    _collect_stats: bool,
+) -> Result<()> {
+    let mut dummy_stats = DeflateStats::default();
+    encode_internal_with_stats(
+        output,
+        data,
+        width,
+        height,
+        color_type,
+        options,
+        false,
+        &mut dummy_stats,
+    )
+}
+
+fn encode_internal_with_stats(
+    output: &mut Vec<u8>,
+    data: &[u8],
+    width: u32,
+    height: u32,
+    color_type: ColorType,
+    options: &PngOptions,
+    collect_stats: bool,
+    stats_out: &mut DeflateStats,
+) -> Result<()> {
+    validate_common(width, height, options)?;
+    let bpp = color_type.bytes_per_pixel();
+    let expected_len = width as usize * height as usize * bpp;
+    if data.len() != expected_len {
+        return Err(Error::InvalidDataLength {
+            expected: expected_len,
+            actual: data.len(),
+        });
+    }
+
+    // Quantization path for RGB/RGBA when requested.
+    let should_quantize = match options.quantization.mode {
+        QuantizationMode::Off => false,
+        QuantizationMode::Force => matches!(color_type, ColorType::Rgb | ColorType::Rgba),
+        QuantizationMode::Auto => matches!(color_type, ColorType::Rgb | ColorType::Rgba),
+    };
+
+    if should_quantize {
+        let (palette_rgba, indices) = quantize_image(
+            data,
+            width,
+            height,
+            color_type,
+            options.quantization.max_colors.min(256) as usize,
+            options.quantization.dithering,
+        )?;
+
+        // Build PLTE and optional tRNS
+        let mut plte: Vec<[u8; 3]> = Vec::with_capacity(palette_rgba.len());
+        let mut alpha: Vec<u8> = Vec::with_capacity(palette_rgba.len());
+        for [r, g, b, a] in &palette_rgba {
+            plte.push([*r, *g, *b]);
+            alpha.push(*a);
+        }
+        let alpha = maybe_trim_transparency(&alpha);
+
+        return encode_indexed_into(
+            output,
+            &indices,
+            width,
+            height,
+            &plte,
+            alpha.as_deref(),
+            options,
+        );
+    }
+
+    // Lossless original path.
+    output.clear();
+    output.reserve(expected_len / 2 + 1024);
+    output.extend_from_slice(&PNG_SIGNATURE);
+    write_ihdr(output, width, height, color_type);
+
+    let filtered = filter::apply_filters(data, width, height, bpp, options);
+    if collect_stats {
+        #[cfg(feature = "timing")]
+        {
+            let (compressed, stats) =
+                deflate_zlib_packed_with_stats(&filtered, options.compression_level);
+            write_idat_chunks(output, &compressed);
+            write_iend(output);
+            *stats_out = stats;
+            return Ok(());
+        }
+        #[cfg(not(feature = "timing"))]
+        {
+            let compressed = deflate_zlib_packed(&filtered, options.compression_level);
+            write_idat_chunks(output, &compressed);
+            write_iend(output);
+            *stats_out = DeflateStats::default();
+            return Ok(());
+        }
+    }
+
+    let compressed = deflate_zlib_packed(&filtered, options.compression_level);
+    write_idat_chunks(output, &compressed);
+    write_iend(output);
+    Ok(())
+}
+#[derive(Clone)]
+struct ColorCount {
+    rgba: [u8; 4],
+    count: u32,
+}
+
+#[derive(Clone)]
+struct ColorBox {
+    colors: Vec<ColorCount>,
+    r_min: u8,
+    r_max: u8,
+    g_min: u8,
+    g_max: u8,
+    b_min: u8,
+    b_max: u8,
+    a_min: u8,
+    a_max: u8,
+}
+
+impl ColorBox {
+    fn from_colors(colors: Vec<ColorCount>) -> Self {
+        let mut r_min = 255;
+        let mut r_max = 0;
+        let mut g_min = 255;
+        let mut g_max = 0;
+        let mut b_min = 255;
+        let mut b_max = 0;
+        let mut a_min = 255;
+        let mut a_max = 0;
+        for c in &colors {
+            let [r, g, b, a] = c.rgba;
+            r_min = r_min.min(r);
+            r_max = r_max.max(r);
+            g_min = g_min.min(g);
+            g_max = g_max.max(g);
+            b_min = b_min.min(b);
+            b_max = b_max.max(b);
+            a_min = a_min.min(a);
+            a_max = a_max.max(a);
+        }
+        Self {
+            colors,
+            r_min,
+            r_max,
+            g_min,
+            g_max,
+            b_min,
+            b_max,
+            a_min,
+            a_max,
+        }
+    }
+
+    fn range(&self) -> (u8, u8) {
+        let r_range = self.r_max - self.r_min;
+        let g_range = self.g_max - self.g_min;
+        let b_range = self.b_max - self.b_min;
+        let a_range = self.a_max - self.a_min;
+        let mut max_range = r_range;
+        let mut channel = 0u8;
+        if g_range > max_range {
+            max_range = g_range;
+            channel = 1;
+        }
+        if b_range > max_range {
+            max_range = b_range;
+            channel = 2;
+        }
+        if a_range > max_range {
+            max_range = a_range;
+            channel = 3;
+        }
+        (channel, max_range)
+    }
+
+    fn can_split(&self) -> bool {
+        self.colors.len() > 1
+    }
+
+    fn split(self) -> (ColorBox, ColorBox) {
+        let (channel, _) = self.range();
+        let mut colors = self.colors;
+        colors.sort_by_key(|c| match channel {
+            0 => c.rgba[0],
+            1 => c.rgba[1],
+            2 => c.rgba[2],
+            _ => c.rgba[3],
+        });
+
+        let total: u32 = colors.iter().map(|c| c.count).sum();
+        let mut acc = 0;
+        let mut split_idx = 0;
+        for (i, c) in colors.iter().enumerate() {
+            acc += c.count;
+            if acc >= total / 2 {
+                split_idx = i;
+                break;
+            }
+        }
+        let left = colors[..=split_idx].to_vec();
+        let right = colors[split_idx + 1..].to_vec();
+        (ColorBox::from_colors(left), ColorBox::from_colors(right))
+    }
+
+    fn make_palette_entry(&self) -> [u8; 4] {
+        let mut r_sum: u64 = 0;
+        let mut g_sum: u64 = 0;
+        let mut b_sum: u64 = 0;
+        let mut a_sum: u64 = 0;
+        let mut total: u64 = 0;
+        for c in &self.colors {
+            let cnt = c.count as u64;
+            let [r, g, b, a] = c.rgba;
+            r_sum += r as u64 * cnt;
+            g_sum += g as u64 * cnt;
+            b_sum += b as u64 * cnt;
+            a_sum += a as u64 * cnt;
+            total += cnt;
+        }
+        if total == 0 {
+            return [0, 0, 0, 255];
+        }
+        [
+            (r_sum / total) as u8,
+            (g_sum / total) as u8,
+            (b_sum / total) as u8,
+            (a_sum / total) as u8,
+        ]
+    }
+}
+
+fn median_cut_palette(colors: Vec<ColorCount>, max_colors: usize) -> Vec<[u8; 4]> {
+    if colors.is_empty() {
+        return vec![[0, 0, 0, 255]];
+    }
+    let mut boxes = vec![ColorBox::from_colors(colors)];
+    while boxes.len() < max_colors {
+        // pick box with largest range
+        let (idx, _) = boxes
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, b)| {
+                let (_, r) = b.range();
+                r
+            })
+            .unwrap();
+        if !boxes[idx].can_split() {
+            break;
+        }
+        let b = boxes.remove(idx);
+        let (l, r) = b.split();
+        if !l.colors.is_empty() {
+            boxes.push(l);
+        }
+        if !r.colors.is_empty() {
+            boxes.push(r);
+        }
+    }
+
+    boxes.into_iter().map(|b| b.make_palette_entry()).collect()
+}
+
+fn nearest_palette_index(color: [u8; 4], palette: &[[u8; 4]]) -> u8 {
+    let mut best_idx = 0u8;
+    let mut best_dist = u32::MAX;
+    for (i, p) in palette.iter().enumerate() {
+        let dr = color[0] as i32 - p[0] as i32;
+        let dg = color[1] as i32 - p[1] as i32;
+        let db = color[2] as i32 - p[2] as i32;
+        let da = color[3] as i32 - p[3] as i32;
+        let dist = (dr * dr + dg * dg + db * db + da * da) as u32;
+        if dist < best_dist {
+            best_dist = dist;
+            best_idx = i as u8;
+        }
+    }
+    best_idx
+}
+
+fn quantize_image(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    color_type: ColorType,
+    max_colors: usize,
+    dithering: bool,
+) -> Result<(Vec<[u8; 4]>, Vec<u8>)> {
+    let bpp = color_type.bytes_per_pixel();
+    if bpp != 3 && bpp != 4 {
+        return Err(Error::UnsupportedColorType);
+    }
+    let mut hist = std::collections::HashMap::<u32, u32>::new();
+    for chunk in data.chunks_exact(bpp) {
+        let (r, g, b, a) = match (bpp, chunk) {
+            (3, [r, g, b]) => (*r, *g, *b, 255u8),
+            (4, [r, g, b, a]) => (*r, *g, *b, *a),
+            _ => unreachable!(),
+        };
+        let key = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | a as u32;
+        *hist.entry(key).or_insert(0) += 1;
+    }
+
+    let colors: Vec<ColorCount> = hist
+        .into_iter()
+        .map(|(k, count)| {
+            let r = (k >> 24) as u8;
+            let g = (k >> 16) as u8;
+            let b = (k >> 8) as u8;
+            let a = k as u8;
+            ColorCount {
+                rgba: [r, g, b, a],
+                count,
+            }
+        })
+        .collect();
+
+    // Early out: already within palette size.
+    if colors.len() as usize <= max_colors {
+        let palette: Vec<[u8; 4]> = colors.iter().map(|c| c.rgba).collect();
+        // Map color to index using direct mapping
+        let mut map = std::collections::HashMap::new();
+        for (i, c) in palette.iter().enumerate() {
+            let key =
+                ((c[0] as u32) << 24) | ((c[1] as u32) << 16) | ((c[2] as u32) << 8) | c[3] as u32;
+            map.insert(key, i as u8);
+        }
+        let mut indices = Vec::with_capacity(data.len() / bpp);
+        for chunk in data.chunks_exact(bpp) {
+            let (r, g, b, a) = match (bpp, chunk) {
+                (3, [r, g, b]) => (*r, *g, *b, 255u8),
+                (4, [r, g, b, a]) => (*r, *g, *b, *a),
+                _ => unreachable!(),
+            };
+            let key = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | a as u32;
+            let idx = *map.get(&key).unwrap();
+            indices.push(idx);
+        }
+        return Ok((palette, indices));
+    }
+
+    let palette = median_cut_palette(colors.clone(), max_colors);
+
+    // Map histogram colors to nearest palette entry.
+    let mut color_to_idx = std::collections::HashMap::new();
+    for c in colors {
+        let idx = nearest_palette_index(c.rgba, &palette);
+        let key = ((c.rgba[0] as u32) << 24)
+            | ((c.rgba[1] as u32) << 16)
+            | ((c.rgba[2] as u32) << 8)
+            | c.rgba[3] as u32;
+        color_to_idx.insert(key, idx);
+    }
+
+    if !dithering {
+        let mut indices = Vec::with_capacity(data.len() / bpp);
+        for chunk in data.chunks_exact(bpp) {
+            let (r, g, b, a) = match (bpp, chunk) {
+                (3, [r, g, b]) => (*r, *g, *b, 255u8),
+                (4, [r, g, b, a]) => (*r, *g, *b, *a),
+                _ => unreachable!(),
+            };
+            let key = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | a as u32;
+            let idx = *color_to_idx.get(&key).unwrap_or(&0);
+            indices.push(idx);
+        }
+        return Ok((palette, indices));
+    }
+
+    // Floyd–Steinberg dithering on RGB (alpha preserved).
+    let width_usize = width as usize;
+    let mut indices = Vec::with_capacity(data.len() / bpp);
+    let mut err_r = vec![0f32; width_usize + 2];
+    let mut err_g = vec![0f32; width_usize + 2];
+    let mut err_b = vec![0f32; width_usize + 2];
+    let mut next_err_r = vec![0f32; width_usize + 2];
+    let mut next_err_g = vec![0f32; width_usize + 2];
+    let mut next_err_b = vec![0f32; width_usize + 2];
+
+    let mut pos = 0;
+    for _y in 0..height as usize {
+        for x in 0..width_usize {
+            let (r, g, b, a) = if bpp == 3 {
+                let r = data[pos];
+                let g = data[pos + 1];
+                let b = data[pos + 2];
+                (r, g, b, 255u8)
+            } else {
+                let r = data[pos];
+                let g = data[pos + 1];
+                let b = data[pos + 2];
+                let a = data[pos + 3];
+                (r, g, b, a)
+            };
+            pos += bpp;
+
+            let adj_r = (r as f32 + err_r[x + 1]).clamp(0.0, 255.0) as u8;
+            let adj_g = (g as f32 + err_g[x + 1]).clamp(0.0, 255.0) as u8;
+            let adj_b = (b as f32 + err_b[x + 1]).clamp(0.0, 255.0) as u8;
+
+            let idx = nearest_palette_index([adj_r, adj_g, adj_b, a], &palette);
+            indices.push(idx);
+            let p = palette[idx as usize];
+            let er = adj_r as f32 - p[0] as f32;
+            let eg = adj_g as f32 - p[1] as f32;
+            let eb = adj_b as f32 - p[2] as f32;
+
+            // Distribute error
+            //       * 7
+            // 3 5 1
+            err_r[x + 2] += er * 7.0 / 16.0;
+            err_g[x + 2] += eg * 7.0 / 16.0;
+            err_b[x + 2] += eb * 7.0 / 16.0;
+
+            next_err_r[x] += er * 3.0 / 16.0;
+            next_err_g[x] += eg * 3.0 / 16.0;
+            next_err_b[x] += eb * 3.0 / 16.0;
+
+            next_err_r[x + 1] += er * 5.0 / 16.0;
+            next_err_g[x + 1] += eg * 5.0 / 16.0;
+            next_err_b[x + 1] += eb * 5.0 / 16.0;
+
+            next_err_r[x + 2] += er * 1.0 / 16.0;
+            next_err_g[x + 2] += eg * 1.0 / 16.0;
+            next_err_b[x + 2] += eb * 1.0 / 16.0;
+        }
+        err_r.fill(0.0);
+        err_g.fill(0.0);
+        err_b.fill(0.0);
+        std::mem::swap(&mut err_r, &mut next_err_r);
+        std::mem::swap(&mut err_g, &mut next_err_g);
+        std::mem::swap(&mut err_b, &mut next_err_b);
+    }
+
+    Ok((palette, indices))
 }
 
 #[cfg(test)]
@@ -540,5 +969,23 @@ mod tests {
         assert_eq!(png[25], 3);
         // Ensure PLTE exists
         assert!(png.windows(4).any(|w| w == b"PLTE"), "PLTE chunk missing");
+    }
+
+    #[test]
+    fn test_quantize_and_encode_indexed() {
+        // Three distinct colors; force quantization to 2 palette entries.
+        let pixels = vec![
+            255, 0, 0, 255, // red
+            0, 255, 0, 255, // green
+            0, 0, 255, 255, // blue
+        ];
+        let mut opts = PngOptions::default();
+        opts.quantization.mode = QuantizationMode::Force;
+        opts.quantization.max_colors = 2;
+        let png = encode_with_options(&pixels, 3, 1, ColorType::Rgba, &opts).unwrap();
+        // Should be indexed
+        assert_eq!(png[25], 3);
+        // PLTE present
+        assert!(png.windows(4).any(|w| w == b"PLTE"));
     }
 }
