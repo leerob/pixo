@@ -904,7 +904,15 @@ fn should_quantize_auto(data: &[u8], bpp: usize, max_colors: usize) -> bool {
         idx = idx.saturating_add(stride * bpp);
     }
 
-    // Quantize when observed diversity is within the palette-friendly bound.
+    let unique = set.len();
+    if unique <= max_colors {
+        // Already within palette; keep lossless path.
+        return false;
+    }
+    if unique > max_colors.saturating_mul(32) {
+        // Too many distinct colors (likely a photo) — skip quantization.
+        return false;
+    }
     true
 }
 
