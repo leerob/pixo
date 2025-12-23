@@ -1097,6 +1097,11 @@ impl ColorBox {
                 break;
             }
         }
+        // Ensure both halves are non-empty by clamping split_idx
+        // to [0, len-2] range (so right side always has at least 1)
+        let max_split = colors.len().saturating_sub(2);
+        split_idx = split_idx.min(max_split);
+
         let left = colors[..=split_idx].to_vec();
         let right = colors[split_idx + 1..].to_vec();
         (ColorBox::from_colors(left), ColorBox::from_colors(right))
@@ -1177,6 +1182,68 @@ fn nearest_palette_index(color: [u8; 4], palette: &[[u8; 4]]) -> u8 {
     best_idx
 }
 
+/// Precomputed lookup table for fast nearest-palette-index queries.
+/// Uses 5-5-5 RGB quantization (32K entries) for O(1) lookups.
+/// For colors with alpha < 255, falls back to direct computation with caching.
+struct PaletteLut {
+    /// LUT for opaque colors: index = (r5 << 10) | (g5 << 5) | b5
+    opaque_lut: Vec<u8>,
+    /// Cache for colors with alpha (less common)
+    alpha_cache: std::cell::RefCell<std::collections::HashMap<u32, u8>>,
+    /// Reference to the palette for cache misses
+    palette: Vec<[u8; 4]>,
+}
+
+impl PaletteLut {
+    /// Build a lookup table for the given palette.
+    fn new(palette: Vec<[u8; 4]>) -> Self {
+        // Build 5-5-5 RGB LUT for opaque colors (32K entries)
+        // Each 8-bit channel is reduced to 5 bits by taking top 5 bits
+        let mut opaque_lut = vec![0u8; 32 * 32 * 32];
+
+        for r5 in 0..32u8 {
+            for g5 in 0..32u8 {
+                for b5 in 0..32u8 {
+                    // Convert 5-bit back to 8-bit (expand to full range)
+                    let r8 = (r5 << 3) | (r5 >> 2);
+                    let g8 = (g5 << 3) | (g5 >> 2);
+                    let b8 = (b5 << 3) | (b5 >> 2);
+
+                    let idx = nearest_palette_index([r8, g8, b8, 255], &palette);
+                    let lut_idx = ((r5 as usize) << 10) | ((g5 as usize) << 5) | (b5 as usize);
+                    opaque_lut[lut_idx] = idx;
+                }
+            }
+        }
+
+        Self {
+            opaque_lut,
+            alpha_cache: std::cell::RefCell::new(std::collections::HashMap::with_capacity(1024)),
+            palette,
+        }
+    }
+
+    /// Fast lookup of nearest palette index.
+    #[inline]
+    fn lookup(&self, r: u8, g: u8, b: u8, a: u8) -> u8 {
+        if a == 255 {
+            // Use precomputed LUT for opaque colors (most common case)
+            let r5 = r >> 3;
+            let g5 = g >> 3;
+            let b5 = b >> 3;
+            let lut_idx = ((r5 as usize) << 10) | ((g5 as usize) << 5) | (b5 as usize);
+            self.opaque_lut[lut_idx]
+        } else {
+            // For transparent colors, use cache with fallback to direct computation
+            let key = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | (a as u32);
+            let mut cache = self.alpha_cache.borrow_mut();
+            *cache
+                .entry(key)
+                .or_insert_with(|| nearest_palette_index([r, g, b, a], &self.palette))
+        }
+    }
+}
+
 /// Quantize an RGB or RGBA image to a palette using median-cut algorithm.
 ///
 /// Returns the palette (up to `max_colors` entries) and indexed pixel data.
@@ -1193,10 +1260,11 @@ fn quantize_image(
         return Err(Error::UnsupportedColorType);
     }
 
-    // Build color histogram with sampling for large images
+    // Build color histogram with sampling for large images.
+    // Limit histogram entries to prevent median-cut from becoming too slow.
     let mut hist = std::collections::HashMap::<u32, u32>::new();
     let total_pixels = data.len() / bpp;
-    let max_samples = 200_000usize;
+    let max_samples = 50_000usize;
     let stride = (total_pixels / max_samples).max(1);
     let mut idx = 0usize;
     while idx + bpp <= data.len() {
@@ -1212,7 +1280,10 @@ fn quantize_image(
         idx = idx.saturating_add(stride * bpp);
     }
 
-    let colors: Vec<ColorCount> = hist
+    // Convert to ColorCount, keeping only the top colors by frequency to limit median-cut complexity.
+    // Median-cut is O(n * log(n) * max_colors), so we cap n at 8192 colors.
+    let max_histogram_colors = 8192usize;
+    let mut colors: Vec<ColorCount> = hist
         .into_iter()
         .map(|(k, count)| {
             let r = (k >> 24) as u8;
@@ -1225,6 +1296,12 @@ fn quantize_image(
             }
         })
         .collect();
+
+    // If too many colors, keep only the most frequent ones for median-cut
+    if colors.len() > max_histogram_colors {
+        colors.sort_unstable_by(|a, b| b.count.cmp(&a.count));
+        colors.truncate(max_histogram_colors);
+    }
 
     // Early out: already within palette size
     if colors.len() <= max_colors {
@@ -1253,10 +1330,13 @@ fn quantize_image(
 
     let palette = median_cut_palette(colors.clone(), max_colors);
 
-    // Map histogram colors to nearest palette entry
+    // Build fast lookup table for nearest palette index queries
+    let lut = PaletteLut::new(palette.clone());
+
+    // Map histogram colors to nearest palette entry (for exact matches)
     let mut color_to_idx = std::collections::HashMap::new();
     for c in colors {
-        let idx = nearest_palette_index(c.rgba, &palette);
+        let idx = lut.lookup(c.rgba[0], c.rgba[1], c.rgba[2], c.rgba[3]);
         let key = ((c.rgba[0] as u32) << 24)
             | ((c.rgba[1] as u32) << 16)
             | ((c.rgba[2] as u32) << 8)
@@ -1273,15 +1353,17 @@ fn quantize_image(
                 _ => unreachable!(),
             };
             let key = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | a as u32;
-            let idx = *color_to_idx
+            let idx = color_to_idx
                 .get(&key)
-                .unwrap_or(&nearest_palette_index([r, g, b, a], &palette));
+                .copied()
+                .unwrap_or_else(|| lut.lookup(r, g, b, a));
             indices.push(idx);
         }
         return Ok((palette, indices));
     }
 
     // Floyd–Steinberg dithering on RGB (alpha preserved)
+    // Uses PaletteLut for O(1) nearest-color lookups instead of O(256) linear search.
     let width_usize = width as usize;
     let mut indices = Vec::with_capacity(width as usize * height as usize);
     let mut err_r = vec![0f32; width_usize + 2];
@@ -1312,7 +1394,9 @@ fn quantize_image(
             let adj_g = (g as f32 + err_g[x + 1]).clamp(0.0, 255.0) as u8;
             let adj_b = (b as f32 + err_b[x + 1]).clamp(0.0, 255.0) as u8;
 
-            let idx = nearest_palette_index([adj_r, adj_g, adj_b, a], &palette);
+            // O(1) lookup using precomputed LUT
+            let idx = lut.lookup(adj_r, adj_g, adj_b, a);
+
             indices.push(idx);
             let p = palette[idx as usize];
             let er = adj_r as f32 - p[0] as f32;
