@@ -1,0 +1,285 @@
+{
+  "speedRankings": {
+    "png": [
+      {
+        "rank": 1,
+        "library": "sharp",
+        "environment": "js",
+        "format": "png",
+        "dataset": "gradient",
+        "duration_micros": 8197.122666666666,
+        "output_bytes": 196430,
+        "status": "ok",
+        "note": null,
+        "duration_ms": 8.197122666666667
+      },
+      {
+        "rank": 2,
+        "library": "comprs",
+        "environment": "rust",
+        "format": "png",
+        "dataset": "gradient",
+        "duration_micros": 8450.996000000001,
+        "status": "ok",
+        "note": null,
+        "duration_ms": 8.450996000000002
+      },
+      {
+        "rank": 3,
+        "library": "image crate",
+        "environment": "rust",
+        "format": "png",
+        "dataset": "gradient",
+        "duration_micros": 10741.766,
+        "status": "ok",
+        "note": null,
+        "duration_ms": 10.741766
+      },
+      {
+        "rank": 4,
+        "library": "pngjs",
+        "environment": "js",
+        "format": "png",
+        "dataset": "gradient",
+        "duration_micros": 20045.857999999953,
+        "output_bytes": 38559,
+        "status": "ok",
+        "note": null,
+        "duration_ms": 20.045857999999953
+      },
+      {
+        "rank": 5,
+        "library": "jimp",
+        "environment": "js",
+        "format": "png",
+        "dataset": "gradient",
+        "duration_micros": 22617.743666666665,
+        "output_bytes": 38559,
+        "status": "ok",
+        "note": null,
+        "duration_ms": 22.617743666666666
+      }
+    ],
+    "jpeg": [
+      {
+        "rank": 1,
+        "library": "sharp",
+        "environment": "js",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "duration_micros": 2618.781333333331,
+        "output_bytes": 8032,
+        "status": "ok",
+        "note": null,
+        "duration_ms": 2.618781333333331
+      },
+      {
+        "rank": 2,
+        "library": "comprs",
+        "environment": "rust",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "duration_micros": 10368.195,
+        "status": "ok",
+        "note": "subsampling=4:4:4",
+        "duration_ms": 10.368195
+      },
+      {
+        "rank": 3,
+        "library": "image crate",
+        "environment": "rust",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "duration_micros": 12887.539,
+        "status": "ok",
+        "note": "subsampling=4:4:4",
+        "duration_ms": 12.887539
+      },
+      {
+        "rank": 4,
+        "library": "jpeg-js",
+        "environment": "js",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "duration_micros": 19873.579666666654,
+        "output_bytes": 17719,
+        "status": "ok",
+        "note": null,
+        "duration_ms": 19.873579666666654
+      },
+      {
+        "rank": 5,
+        "library": "jimp",
+        "environment": "js",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "duration_micros": 50418.695666666645,
+        "output_bytes": 17719,
+        "status": "ok",
+        "note": null,
+        "duration_ms": 50.41869566666664
+      }
+    ]
+  },
+  "outputRankings": {
+    "png": [
+      {
+        "rank": 1,
+        "library": "comprs",
+        "environment": "rust",
+        "format": "png",
+        "dataset": "gradient",
+        "output_bytes": 8884,
+        "status": "ok",
+        "note": null
+      },
+      {
+        "rank": 2,
+        "library": "jimp",
+        "environment": "js",
+        "format": "png",
+        "dataset": "gradient",
+        "duration_micros": 22617.743666666665,
+        "output_bytes": 38559,
+        "status": "ok",
+        "note": null
+      },
+      {
+        "rank": 3,
+        "library": "pngjs",
+        "environment": "js",
+        "format": "png",
+        "dataset": "gradient",
+        "duration_micros": 20045.857999999953,
+        "output_bytes": 38559,
+        "status": "ok",
+        "note": null
+      },
+      {
+        "rank": 4,
+        "library": "image crate",
+        "environment": "rust",
+        "format": "png",
+        "dataset": "gradient",
+        "output_bytes": 78660,
+        "status": "ok",
+        "note": null
+      },
+      {
+        "rank": 5,
+        "library": "sharp",
+        "environment": "js",
+        "format": "png",
+        "dataset": "gradient",
+        "duration_micros": 8197.122666666666,
+        "output_bytes": 196430,
+        "status": "ok",
+        "note": null
+      }
+    ],
+    "jpeg": [
+      {
+        "rank": 1,
+        "library": "sharp",
+        "environment": "js",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "duration_micros": 2618.781333333331,
+        "output_bytes": 8032,
+        "status": "ok",
+        "note": null
+      },
+      {
+        "rank": 2,
+        "library": "comprs",
+        "environment": "rust",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "output_bytes": 11923,
+        "status": "ok",
+        "note": "subsampling=4:2:0"
+      },
+      {
+        "rank": 3,
+        "library": "image crate",
+        "environment": "rust",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "output_bytes": 17082,
+        "status": "ok",
+        "note": "subsampling=4:4:4"
+      },
+      {
+        "rank": 4,
+        "library": "jimp",
+        "environment": "js",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "duration_micros": 50418.695666666645,
+        "output_bytes": 17719,
+        "status": "ok",
+        "note": null
+      },
+      {
+        "rank": 5,
+        "library": "jpeg-js",
+        "environment": "js",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "duration_micros": 19873.579666666654,
+        "output_bytes": 17719,
+        "status": "ok",
+        "note": null
+      },
+      {
+        "rank": 6,
+        "library": "comprs",
+        "environment": "rust",
+        "format": "jpeg",
+        "dataset": "gradient",
+        "output_bytes": 17743,
+        "status": "ok",
+        "note": "subsampling=4:4:4"
+      }
+    ]
+  },
+  "binaryRankings": [
+    {
+      "rank": 1,
+      "library": "jpeg-js",
+      "environment": "js",
+      "bytes": 76029,
+      "notes": "jpeg-js"
+    },
+    {
+      "rank": 2,
+      "library": "sharp",
+      "environment": "js",
+      "bytes": 502829,
+      "notes": "sharp"
+    },
+    {
+      "rank": 3,
+      "library": "pngjs",
+      "environment": "js",
+      "bytes": 650101,
+      "notes": "pngjs"
+    },
+    {
+      "rank": 4,
+      "library": "jimp",
+      "environment": "js",
+      "bytes": 4946217,
+      "notes": "jimp"
+    }
+  ],
+  "notes": [
+    "WASM sizes are approximate and depend on build configuration",
+    "Speed measurements are short-run averages; use Criterion output for statistical analysis",
+    "Compression ratios vary with image content",
+    "Use --export-json to feed the cross-language aggregator",
+    "QUICK=1 reduces iterations to speed up the run.",
+    "Package sizes are measured from installed node_modules when available.",
+    "JS results use quick iterations by default; set BENCH_ITERATIONS for longer runs."
+  ]
+}

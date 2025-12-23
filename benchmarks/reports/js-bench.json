@@ -1,0 +1,305 @@
+{
+  "generated_at": "2025-12-23T05:11:40.860Z",
+  "iterations": 3,
+  "quality": 85,
+  "datasets": [
+    {
+      "name": "gradient",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "name": "noisy",
+      "width": 512,
+      "height": 512
+    }
+  ],
+  "results": [
+    {
+      "library": "sharp",
+      "package": "sharp",
+      "format": "png",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": 196430,
+      "duration_micros": 8197.122666666666,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "sharp",
+      "package": "sharp",
+      "format": "jpeg",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": 8032,
+      "duration_micros": 2618.781333333331,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "sharp",
+      "package": "sharp",
+      "format": "png",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": 15688,
+      "duration_micros": 2298.2703333333347,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "sharp",
+      "package": "sharp",
+      "format": "jpeg",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": 187203,
+      "duration_micros": 6746.333333333335,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "jimp",
+      "package": "jimp",
+      "format": "png",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": 38559,
+      "duration_micros": 22617.743666666665,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "jimp",
+      "package": "jimp",
+      "format": "jpeg",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": 17719,
+      "duration_micros": 50418.695666666645,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "jimp",
+      "package": "jimp",
+      "format": "png",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": 894864,
+      "duration_micros": 39359.01433333333,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "jimp",
+      "package": "jimp",
+      "format": "jpeg",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": 416525,
+      "duration_micros": 86242.08866666668,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "pngjs",
+      "package": "pngjs",
+      "format": "png",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": 38559,
+      "duration_micros": 20045.857999999953,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "pngjs",
+      "package": "pngjs",
+      "format": "png",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": 894864,
+      "duration_micros": 35887.44566666666,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "jpeg-js",
+      "package": "jpeg-js",
+      "format": "jpeg",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": 17719,
+      "duration_micros": 19873.579666666654,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "jpeg-js",
+      "package": "jpeg-js",
+      "format": "jpeg",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": 416525,
+      "duration_micros": 71829.61333333333,
+      "status": "ok",
+      "note": null
+    },
+    {
+      "library": "squoosh-lib",
+      "package": "@squoosh/lib",
+      "format": "png",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": null,
+      "duration_micros": null,
+      "status": "skipped",
+      "note": "Node 22: global navigator is read-only; use older Node or browser"
+    },
+    {
+      "library": "squoosh-lib",
+      "package": "@squoosh/lib",
+      "format": "jpeg",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": null,
+      "duration_micros": null,
+      "status": "skipped",
+      "note": "Node 22: global navigator is read-only; use older Node or browser"
+    },
+    {
+      "library": "squoosh-lib",
+      "package": "@squoosh/lib",
+      "format": "png",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": null,
+      "duration_micros": null,
+      "status": "skipped",
+      "note": "Node 22: global navigator is read-only; use older Node or browser"
+    },
+    {
+      "library": "squoosh-lib",
+      "package": "@squoosh/lib",
+      "format": "jpeg",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": null,
+      "duration_micros": null,
+      "status": "skipped",
+      "note": "Node 22: global navigator is read-only; use older Node or browser"
+    },
+    {
+      "library": "browser-image-compression",
+      "package": "browser-image-compression",
+      "format": "png",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": null,
+      "duration_micros": null,
+      "status": "skipped",
+      "note": "browser-only; requires DOM/canvas"
+    },
+    {
+      "library": "browser-image-compression",
+      "package": "browser-image-compression",
+      "format": "jpeg",
+      "dataset": "gradient",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": null,
+      "duration_micros": null,
+      "status": "skipped",
+      "note": "browser-only; requires DOM/canvas"
+    },
+    {
+      "library": "browser-image-compression",
+      "package": "browser-image-compression",
+      "format": "png",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "output_bytes": null,
+      "duration_micros": null,
+      "status": "skipped",
+      "note": "browser-only; requires DOM/canvas"
+    },
+    {
+      "library": "browser-image-compression",
+      "package": "browser-image-compression",
+      "format": "jpeg",
+      "dataset": "noisy",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "output_bytes": null,
+      "duration_micros": null,
+      "status": "skipped",
+      "note": "browser-only; requires DOM/canvas"
+    }
+  ],
+  "binary_sizes": [
+    {
+      "library": "sharp",
+      "package": "sharp",
+      "bytes": 502829
+    },
+    {
+      "library": "jimp",
+      "package": "jimp",
+      "bytes": 4946217
+    },
+    {
+      "library": "pngjs",
+      "package": "pngjs",
+      "bytes": 650101
+    },
+    {
+      "library": "jpeg-js",
+      "package": "jpeg-js",
+      "bytes": 76029
+    }
+  ],
+  "notes": [
+    "QUICK=1 reduces iterations to speed up the run.",
+    "Package sizes are measured from installed node_modules when available."
+  ]
+}

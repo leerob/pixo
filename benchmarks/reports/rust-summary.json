@@ -1,0 +1,144 @@
+{
+  "binary_sizes": [
+    {
+      "library": "comprs",
+      "artifact": "wasm32-unknown-unknown",
+      "bytes": null,
+      "status": "missing",
+      "notes": "Zero deps, pure Rust"
+    },
+    {
+      "library": "image crate",
+      "artifact": "n/a",
+      "bytes": null,
+      "status": "unmeasured",
+      "notes": "Pure Rust, many codecs"
+    },
+    {
+      "library": "photon-rs",
+      "artifact": "wasm (planned)",
+      "bytes": null,
+      "status": "planned",
+      "notes": "WASM-optimized; not yet wired into bench"
+    },
+    {
+      "library": "zune-image",
+      "artifact": "wasm/native (planned)",
+      "bytes": null,
+      "status": "planned",
+      "notes": "SIMD optimized; encoding support varies"
+    },
+    {
+      "library": "wasm-mozjpeg",
+      "artifact": "wasm (planned)",
+      "bytes": null,
+      "status": "planned",
+      "notes": "Emscripten compiled; optional"
+    }
+  ],
+  "output_sizes": [
+    {
+      "format": "PNG",
+      "library": "comprs",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "subsampling": null,
+      "bytes": 8884
+    },
+    {
+      "format": "PNG",
+      "library": "image crate",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "subsampling": null,
+      "bytes": 78660
+    },
+    {
+      "format": "JPEG",
+      "library": "comprs",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "subsampling": "4:4:4",
+      "bytes": 17743
+    },
+    {
+      "format": "JPEG",
+      "library": "image crate",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "subsampling": "4:4:4",
+      "bytes": 17082
+    },
+    {
+      "format": "JPEG",
+      "library": "comprs",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "subsampling": "4:2:0",
+      "bytes": 11923
+    }
+  ],
+  "speed": [
+    {
+      "operation": "PNG encode",
+      "library": "comprs",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "subsampling": null,
+      "duration_micros": 8450.996000000001
+    },
+    {
+      "operation": "PNG encode",
+      "library": "image crate",
+      "width": 512,
+      "height": 512,
+      "quality": null,
+      "subsampling": null,
+      "duration_micros": 10741.766
+    },
+    {
+      "operation": "JPEG encode",
+      "library": "comprs",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "subsampling": "4:4:4",
+      "duration_micros": 10368.195
+    },
+    {
+      "operation": "JPEG encode",
+      "library": "image crate",
+      "width": 512,
+      "height": 512,
+      "quality": 85,
+      "subsampling": "4:4:4",
+      "duration_micros": 12887.539
+    }
+  ],
+  "deflate": [
+    {
+      "library": "comprs",
+      "case": "compressible_1mb",
+      "output_bytes": 3115,
+      "ratio": 336.6215088282504
+    },
+    {
+      "library": "flate2",
+      "case": "compressible_1mb",
+      "output_bytes": 3115,
+      "ratio": 336.6215088282504
+    }
+  ],
+  "notes": [
+    "WASM sizes are approximate and depend on build configuration",
+    "Speed measurements are short-run averages; use Criterion output for statistical analysis",
+    "Compression ratios vary with image content",
+    "Use --export-json to feed the cross-language aggregator"
+  ]
+}
