@@ -6,6 +6,7 @@ function parseArgs(argv) {
   let rustPath = null;
   let jsPath = null;
   let outputPath = null;
+  let jsonOut = null;
   while (args.length) {
     const arg = args.shift();
     if (arg === "--rust") {
@@ -14,12 +15,14 @@ function parseArgs(argv) {
       jsPath = args.shift() ?? null;
     } else if (arg === "--output" || arg === "-o") {
       outputPath = args.shift() ?? null;
+    } else if (arg === "--json-out") {
+      jsonOut = args.shift() ?? null;
     }
   }
   if (!rustPath || !jsPath) {
     throw new Error("Usage: node aggregate.mjs --rust <rust.json> --js <js.json> [--output <file>]");
   }
-  return { rustPath, jsPath, outputPath };
+  return { rustPath, jsPath, outputPath, jsonOut };
 }
 
 function loadJson(filePath) {
@@ -219,7 +222,7 @@ function buildMarkdown(summary) {
 }
 
 function main() {
-  const { rustPath, jsPath, outputPath } = parseArgs(process.argv.slice(2));
+  const { rustPath, jsPath, outputPath, jsonOut } = parseArgs(process.argv.slice(2));
 
   const rust = loadJson(path.resolve(rustPath));
   const js = loadJson(path.resolve(jsPath));
@@ -265,6 +268,10 @@ function main() {
   };
 
   const markdown = buildMarkdown(summary);
+  if (jsonOut) {
+    fs.writeFileSync(jsonOut, JSON.stringify(summary, null, 2));
+    console.log(`Wrote cross-language summary JSON to ${jsonOut}`);
+  }
   if (outputPath) {
     fs.writeFileSync(outputPath, markdown);
     console.log(`Wrote cross-language summary to ${outputPath}`);
