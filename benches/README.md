@@ -78,6 +78,39 @@ The benchmark will print a table like:
 
 ---
 
+## Cross-language targets and capabilities
+
+These are the libraries we aim to benchmark across Rust and JS/Node. Some targets have prerequisites or may be skipped when tooling is unavailable.
+
+### Rust targets
+| Library        | Formats         | Environment | Prereqs / notes                                     | Skip rule                                  |
+| -------------- | --------------- | ----------- | --------------------------------------------------- | ------------------------------------------ |
+| **comprs**     | PNG, JPEG       | Rust/WASM   | Included; zero deps                                 | –                                          |
+| `image`        | PNG, JPEG (+)   | Rust        | Dev-dep already present                             | –                                          |
+| `photon-rs`    | PNG/JPEG*       | Rust/WASM   | Image pipeline crate; may wrap `image` encoders     | Skip if encode APIs unavailable            |
+| `zune-image`   | PNG/JPEG*       | Rust/WASM   | SIMD-focused; encoding support varies by version    | Skip if encode APIs unavailable            |
+| `wasm-mozjpeg` | JPEG            | WASM        | Emscripten/wasm toolchain required                  | Skip if toolchain not installed            |
+| `libpng` bind  | PNG             | C/WASM      | C toolchain or Emscripten required                  | Skip if toolchain not installed            |
+
+### JS/Node targets
+| Library                     | Formats   | Environment          | Prereqs / notes                                        | Skip rule                            |
+| --------------------------- | --------- | -------------------- | ------------------------------------------------------ | ------------------------------------ |
+| `sharp`                     | PNG, JPEG | Node (libvips)       | Native deps; large install footprint                   | Skip if libvips/native install fails |
+| `jimp`                      | PNG, JPEG | Node (pure JS)       | No native deps; slower                                 | –                                    |
+| `pngjs`                     | PNG       | Node (pure JS)       | No native deps                                         | –                                    |
+| `jpeg-js`                   | JPEG      | Node (pure JS)       | No native deps                                         | –                                    |
+| `browser-image-compression` | PNG, JPEG | Browser / node-canvas| Needs Canvas polyfill or headless browser              | Skip if canvas/headless unavailable  |
+| `squoosh-lib`               | PNG, JPEG | Node/Browser (WASM)  | Downloads WASM codecs; bundle size includes WASM files | Skip if WASM fetch fails             |
+
+### Shared corpus
+- Synthetic RGB buffers: gradient + noisy at 256×256 and 512×512 (see `benches/corpus.rs`).
+- JPEG qualities: 75 and 85 by default.
+- Real fixtures: reuse `tests/fixtures/{playground.png, rocket.png, multi-agent.jpg}`.
+
+Both Rust and JS runners should rely on these definitions to keep inputs consistent.
+
+---
+
 ## Library Comparison
 
 When choosing an image compression solution, consider these trade-offs:

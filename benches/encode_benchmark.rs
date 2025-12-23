@@ -2,47 +2,19 @@
 //!
 //! Compare against the `image` crate for PNG and JPEG encoding.
 
+mod corpus;
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use image::ImageEncoder;
 
 use comprs::{jpeg, png, ColorType};
-
-/// Generate a test image with gradient pattern.
-fn generate_test_image(width: u32, height: u32) -> Vec<u8> {
-    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
-    for y in 0..height {
-        for x in 0..width {
-            let r = ((x * 255) / width) as u8;
-            let g = ((y * 255) / height) as u8;
-            let b = (((x + y) * 127) / (width + height)) as u8;
-            pixels.extend_from_slice(&[r, g, b]);
-        }
-    }
-    pixels
-}
-
-/// Generate a test image with random-ish pattern (harder to compress).
-fn generate_noisy_image(width: u32, height: u32) -> Vec<u8> {
-    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
-    let mut seed = 12345u32;
-    for _ in 0..(width * height) {
-        // Simple LCG for deterministic "random" values
-        seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
-        let r = (seed >> 16) as u8;
-        seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
-        let g = (seed >> 16) as u8;
-        seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
-        let b = (seed >> 16) as u8;
-        pixels.extend_from_slice(&[r, g, b]);
-    }
-    pixels
-}
+use corpus::{generate_gradient_rgb, generate_noisy_rgb};
 
 fn png_encoding_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("PNG Encoding");
 
     for size in [64, 128, 256, 512].iter() {
-        let pixels = generate_test_image(*size, *size);
+        let pixels = generate_gradient_rgb(*size, *size);
         let pixel_bytes = (*size as u64) * (*size as u64) * 3;
 
         group.throughput(Throughput::Bytes(pixel_bytes));
@@ -90,7 +62,7 @@ fn jpeg_encoding_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("JPEG Encoding");
 
     for size in [64, 128, 256, 512].iter() {
-        let pixels = generate_test_image(*size, *size);
+        let pixels = generate_gradient_rgb(*size, *size);
         let pixel_bytes = (*size as u64) * (*size as u64) * 3;
 
         group.throughput(Throughput::Bytes(pixel_bytes));
@@ -173,8 +145,8 @@ fn compression_ratio_benchmark(c: &mut Criterion) {
     let sizes = [(256, 256)];
 
     for (width, height) in sizes.iter() {
-        let gradient = generate_test_image(*width, *height);
-        let noisy = generate_noisy_image(*width, *height);
+        let gradient = generate_gradient_rgb(*width, *height);
+        let noisy = generate_noisy_rgb(*width, *height);
 
         let mut png_buf = Vec::new();
 
