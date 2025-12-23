@@ -410,6 +410,7 @@ fn write_sos(output: &mut Vec<u8>, color_type: ColorType) {
 }
 
 /// Encode the image scan data.
+#[allow(clippy::too_many_arguments)]
 fn encode_scan(
     output: &mut Vec<u8>,
     data: &[u8],
@@ -446,7 +447,7 @@ fn encode_scan(
                           mcu_count: u32,
                           rst_idx: &mut u8| {
         if let Some(interval) = restart_interval {
-            if interval > 0 && mcu_count % interval as u32 == 0 {
+            if interval > 0 && mcu_count.is_multiple_of(interval as u32) {
                 writer.flush();
                 writer.write_bytes(&[0xFF, 0xD0 + (*rst_idx & 0x07)]);
                 *rst_idx = (*rst_idx + 1) & 0x07;
@@ -512,13 +513,13 @@ fn encode_scan(
             }
         }
         (_, Subsampling::S420) => {
-            let padded_width_420 = (width as usize + 15) & !15;
-            let padded_height_420 = (height as usize + 15) & !15;
+            let padded_width_420 = (width + 15) & !15;
+            let padded_height_420 = (height + 15) & !15;
 
             for mcu_y in (0..padded_height_420).step_by(16) {
                 for mcu_x in (0..padded_width_420).step_by(16) {
                     let (y_blocks, cb_block, cr_block) =
-                        extract_mcu_420(data, width as usize, height as usize, mcu_x, mcu_y);
+                        extract_mcu_420(data, width, height, mcu_x, mcu_y);
 
                     for y_block in &y_blocks {
                         let y_dct = dct_2d(y_block);

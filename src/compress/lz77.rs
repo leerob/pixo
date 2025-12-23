@@ -35,6 +35,14 @@ pub enum Token {
 }
 
 /// Packed token representation (4 bytes) for cache-friendly encoding paths.
+///
+/// Bit layout:
+/// - Bit 31: LITERAL_FLAG (1 = literal, 0 = match)
+/// - For literals: bits 0-7 contain the byte value
+/// - For matches: bits 0-15 contain length, bits 16-30 contain (distance - 1)
+///
+/// Distance is stored as (distance - 1) so that the range 1-32768 maps to 0-32767,
+/// which fits in 15 bits and avoids collision with the LITERAL_FLAG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PackedToken(u32);
 
@@ -50,8 +58,11 @@ impl PackedToken {
     #[inline]
     /// Create a packed match token.
     pub fn match_(length: u16, distance: u16) -> Self {
-        // length in low 16 bits, distance in high 15 bits (distance <= 32768 fits 15 bits), top bit clear
-        let val = (distance as u32) << 16 | (length as u32);
+        debug_assert!(distance >= 1, "Distance must be at least 1");
+        // Store (distance - 1) so range 1-32768 becomes 0-32767, fitting in 15 bits.
+        // This ensures bit 31 is never set for matches, avoiding collision with LITERAL_FLAG.
+        let dist_minus_one = (distance - 1) as u32;
+        let val = dist_minus_one << 16 | (length as u32);
         Self(val)
     }
 
@@ -78,7 +89,8 @@ impl PackedToken {
             None
         } else {
             let length = (self.0 & 0xFFFF) as u16;
-            let distance = (self.0 >> 16) as u16;
+            // Recover original distance by adding 1 back
+            let distance = ((self.0 >> 16) as u16) + 1;
             Some((length, distance))
         }
     }
@@ -221,8 +233,7 @@ impl Lz77Compressor {
                     // Update hash for current position
                     self.update_hash(data, pos);
 
-                    if let Some((next_length, _)) =
-                        self.find_best_match(data, pos + 1, chain_limit)
+                    if let Some((next_length, _)) = self.find_best_match(data, pos + 1, chain_limit)
                     {
                         if next_length > length + 1 {
                             // Better match at next position, emit literal
@@ -334,8 +345,7 @@ impl Lz77Compressor {
                 if self.lazy_matching && length < GOOD_MATCH_LENGTH && pos + 1 < data.len() {
                     self.update_hash(data, pos);
 
-                    if let Some((next_length, _)) =
-                        self.find_best_match(data, pos + 1, chain_limit)
+                    if let Some((next_length, _)) = self.find_best_match(data, pos + 1, chain_limit)
                     {
                         if next_length > length + 1 {
                             tokens.push(PackedToken::literal(data[pos]));
@@ -568,5 +578,64 @@ mod tests {
         let mut compressor = Lz77Compressor::new(6);
         let tokens = compressor.compress(&[]);
         assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn test_packed_token_literal() {
+        for byte in 0u8..=255 {
+            let token = PackedToken::literal(byte);
+            assert!(
+                token.is_literal(),
+                "Literal should be identified as literal"
+            );
+            assert_eq!(token.as_literal(), Some(byte), "Literal value mismatch");
+            assert_eq!(token.as_match(), None, "Literal should not be a match");
+        }
+    }
+
+    #[test]
+    fn test_packed_token_match() {
+        // Test various lengths and distances including edge cases
+        let test_cases = [
+            (3, 1),       // min length, min distance
+            (258, 1),     // max length, min distance
+            (3, 32768),   // min length, max distance (the bug case!)
+            (258, 32768), // max length, max distance
+            (100, 100),   // typical values
+            (3, 32767),   // just below max distance
+        ];
+
+        for (length, distance) in test_cases {
+            let token = PackedToken::match_(length, distance);
+            assert!(
+                !token.is_literal(),
+                "Match with length={length}, distance={distance} should NOT be identified as literal",
+            );
+            assert_eq!(
+                token.as_match(),
+                Some((length, distance)),
+                "Match values mismatch for length={length}, distance={distance}",
+            );
+            assert_eq!(
+                token.as_literal(),
+                None,
+                "Match should not return a literal value for length={length}, distance={distance}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_packed_token_max_distance_not_literal() {
+        // Regression test: distance=32768 previously collided with LITERAL_FLAG
+        let token = PackedToken::match_(10, 32768);
+        assert!(
+            !token.is_literal(),
+            "Match with max distance (32768) was incorrectly identified as literal"
+        );
+        assert_eq!(
+            token.as_match(),
+            Some((10, 32768)),
+            "Match with max distance failed to roundtrip correctly"
+        );
     }
 }
