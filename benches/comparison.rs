@@ -851,8 +851,12 @@ fn print_summary_report() {
             compare_real_image_lossy(path, &tmp_dir)
         {
             let delta = (comprs_size as f64 / pq_size as f64 - 1.0) * 100.0;
-            let delta_str = format!("{:+.0}%", delta);
-            let note = if delta < 0.0 { "comprs wins" } else { "pngquant wins" };
+            let delta_str = format!("{delta:+.0}%");
+            let note = if delta < 0.0 {
+                "comprs wins"
+            } else {
+                "pngquant wins"
+            };
             println!(
                 "│ {:<18} │ {:>11} │ {:>11} │ {:>11} │ {:<32} │",
                 name,
@@ -876,8 +880,16 @@ fn print_summary_report() {
     println!(
         "External tools: oxipng={}, mozjpeg={}, pngquant={}",
         if oxipng_available { "found" } else { "missing" },
-        if mozjpeg_available { "found" } else { "missing" },
-        if pngquant_available { "found" } else { "missing" }
+        if mozjpeg_available {
+            "found"
+        } else {
+            "missing"
+        },
+        if pngquant_available {
+            "found"
+        } else {
+            "missing"
+        }
     );
     println!();
 

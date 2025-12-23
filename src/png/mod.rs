@@ -299,7 +299,10 @@ pub fn encode_into(
         )?;
 
         // Build PLTE and optional tRNS
-        let plte: Vec<[u8; 3]> = palette_rgba.iter().map(|[r, g, b, _]| [*r, *g, *b]).collect();
+        let plte: Vec<[u8; 3]> = palette_rgba
+            .iter()
+            .map(|[r, g, b, _]| [*r, *g, *b])
+            .collect();
         let alpha: Vec<u8> = palette_rgba.iter().map(|[_, _, _, a]| *a).collect();
         let alpha = maybe_trim_transparency(&alpha);
 
