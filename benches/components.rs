@@ -158,9 +158,9 @@ fn bench_filters(c: &mut Criterion) {
         });
     });
 
-    group.bench_function("adaptive_sampled4_512_rgb", |b| {
+    group.bench_function("adaptive_fast_512_rgb", |b| {
         let options = PngOptions {
-            filter_strategy: FilterStrategy::AdaptiveSampled { interval: 4 },
+            filter_strategy: FilterStrategy::AdaptiveFast,
             ..Default::default()
         };
         b.iter(|| {

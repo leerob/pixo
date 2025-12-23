@@ -267,25 +267,14 @@ while zero_run >= 16 {
 
 ## Stage 8: Huffman Encoding
 
-Finally, the run/value pairs are Huffman encoded using standard tables:
+Finally, the run/value pairs are Huffman encoded using Huffman tables. By default we use the standard JPEG tables; with the new `optimize_huffman` option, we build per-image tables from coefficient frequencies (mozjpeg-style `optimize_coding`) and fall back to the standard tables if code lengths would exceed 16 bits.
 
 - **DC tables**: Encode the category (number of bits needed for the difference)
 - **AC tables**: Encode the (run, size) byte
 
 JPEG uses separate tables for luminance (Y) and chrominance (Cb, Cr) to optimize for their different statistics.
 
-```rust
-// From src/jpeg/huffman.rs
-impl HuffmanTables {
-    fn get_dc_code(&self, category: u8, is_luminance: bool) -> HuffCode {
-        if is_luminance {
-            self.dc_lum_codes[category as usize]
-        } else {
-            self.dc_chrom_codes[category as usize]
-        }
-    }
-}
-```
+We can push compression further by building custom Huffman tables tuned to each image's actual symbol frequencies, rather than using the standard tables. For details on this and other advanced optimizations, see [Performance Optimization](./performance-optimization.md).
 
 ## JPEG File Structure
 

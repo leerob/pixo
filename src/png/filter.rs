@@ -60,8 +60,7 @@ pub fn apply_filters(
     let filtered_row_size = row_bytes + 1; // +1 for filter type byte
     let zero_row = vec![0u8; row_bytes];
 
-    // Height-aware strategy tweaks: for tall images, favor sampled adaptive to
-    // reduce per-row work while preserving quality.
+    // Height-aware strategy tweaks.
     let mut strategy = options.filter_strategy;
     let area = (width as usize).saturating_mul(height as usize);
     // For very small images, prefer Sub filter to minimize CPU overhead.
@@ -72,9 +71,6 @@ pub fn apply_filters(
         )
     {
         strategy = FilterStrategy::Sub;
-    } else if matches!(strategy, FilterStrategy::AdaptiveFast) && height >= 512 {
-        let interval = if height >= 2048 { 8 } else { 4 };
-        strategy = FilterStrategy::AdaptiveSampled { interval };
     }
 
     // Fast high-entropy detection: if the first row has almost no identical
@@ -83,9 +79,7 @@ pub fn apply_filters(
     if area >= 16_384
         && matches!(
             strategy,
-            FilterStrategy::Adaptive
-                | FilterStrategy::AdaptiveFast
-                | FilterStrategy::AdaptiveSampled { .. }
+            FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast
         )
     {
         let first_row = &data[..row_bytes];
@@ -101,9 +95,7 @@ pub fn apply_filters(
         if height > 32
             && matches!(
                 strategy,
-                FilterStrategy::Adaptive
-                    | FilterStrategy::AdaptiveFast
-                    | FilterStrategy::AdaptiveSampled { .. }
+                FilterStrategy::Adaptive | FilterStrategy::AdaptiveFast
             )
         {
             return apply_filters_parallel(
@@ -124,42 +116,23 @@ pub fn apply_filters(
     let mut last_filter: u8 = FILTER_PAETH; // default guess for sampled reuse
                                             // Track last used filter to bias adaptive_fast toward recent winner.
     let mut last_adaptive_filter: Option<u8> = None;
+    let mut filter_counts = [0usize; 5];
 
     for y in 0..height as usize {
         let row_start = y * row_bytes;
-        let row = &data[row_start..row_start + row_bytes];
+        let end = (row_start + row_bytes).min(data.len());
+        let row = &data[row_start..end];
         match strategy {
-            FilterStrategy::AdaptiveSampled { interval } if interval > 1 => {
-                let interval = interval.max(1) as usize;
-                let prev = if y == 0 { &zero_row[..] } else { prev_row };
-                // Dynamic interval: more sampling on small images, coarser on tall images.
-                let eff_interval = if height as usize > 512 {
-                    interval.max(4)
-                } else {
-                    interval
-                };
-                if y % eff_interval == 0 {
-                    let base = output.len();
-                    adaptive_filter(
-                        row,
-                        prev,
-                        bytes_per_pixel,
-                        &mut output,
-                        &mut adaptive_scratch,
-                    );
-                    if let Some(&f) = output.get(base) {
-                        last_filter = f;
-                    }
-                } else {
-                    output.push(last_filter);
-                    apply_filter_type(
-                        last_filter,
-                        row,
-                        prev,
-                        bytes_per_pixel,
-                        &mut output,
-                        &mut adaptive_scratch,
-                    );
+            FilterStrategy::MinSum => {
+                minsum_filter(
+                    row,
+                    if y == 0 { &zero_row[..] } else { prev_row },
+                    bytes_per_pixel,
+                    &mut output,
+                    &mut adaptive_scratch,
+                );
+                if let Some(&f) = output.last() {
+                    last_filter = f;
                 }
             }
             FilterStrategy::AdaptiveFast => {
@@ -201,6 +174,23 @@ pub fn apply_filters(
 
         // Update previous row reference
         prev_row = row;
+
+        if options.verbose_filter_log && last_filter <= FILTER_PAETH {
+            filter_counts[last_filter as usize] += 1;
+        }
+    }
+
+    if options.verbose_filter_log {
+        eprintln!(
+            "PNG filters: strategy={:?}, rows={} counts={{None:{}, Sub:{}, Up:{}, Avg:{}, Paeth:{}}}",
+            strategy,
+            height,
+            filter_counts[0],
+            filter_counts[1],
+            filter_counts[2],
+            filter_counts[3],
+            filter_counts[4]
+        );
     }
 
     output
@@ -393,6 +383,17 @@ fn adaptive_filter(
     }
 }
 
+/// Min-sum filter selection (alias of adaptive using sum of absolute values).
+fn minsum_filter(
+    row: &[u8],
+    prev_row: &[u8],
+    bpp: usize,
+    output: &mut Vec<u8>,
+    scratch: &mut AdaptiveScratch,
+) {
+    adaptive_filter(row, prev_row, bpp, output, scratch);
+}
+
 /// Adaptive filtering with a faster heuristic and early cutoffs.
 fn adaptive_filter_fast(
     row: &[u8],
@@ -479,35 +480,14 @@ fn filter_row(
             output.push(FILTER_PAETH);
             filter_paeth(row, prev_row, bpp, output);
         }
+        FilterStrategy::MinSum => {
+            minsum_filter(row, prev_row, bpp, output, scratch);
+        }
         FilterStrategy::Adaptive => {
             adaptive_filter(row, prev_row, bpp, output, scratch);
         }
         FilterStrategy::AdaptiveFast => {
             adaptive_filter_fast(row, prev_row, bpp, output, scratch);
-        }
-        FilterStrategy::AdaptiveSampled { .. } => {
-            // Fallback to full adaptive; sampled handling lives in apply_filters loop.
-            adaptive_filter(row, prev_row, bpp, output, scratch);
-        }
-    }
-}
-
-fn apply_filter_type(
-    filter: u8,
-    row: &[u8],
-    prev_row: &[u8],
-    bpp: usize,
-    output: &mut Vec<u8>,
-    scratch: &mut AdaptiveScratch,
-) {
-    match filter {
-        FILTER_NONE => output.extend_from_slice(row),
-        FILTER_SUB => filter_sub(row, bpp, output),
-        FILTER_UP => filter_up(row, prev_row, output),
-        FILTER_AVERAGE => filter_average(row, prev_row, bpp, output),
-        FILTER_PAETH => filter_paeth(row, prev_row, bpp, output),
-        _ => {
-            adaptive_filter(row, prev_row, bpp, output, scratch);
         }
     }
 }
@@ -701,31 +681,5 @@ mod tests {
         // Filter bytes should be one of the defined filters
         assert!(matches!(filtered[0], FILTER_SUB | FILTER_UP | FILTER_PAETH));
         assert!(matches!(filtered[7], FILTER_SUB | FILTER_UP | FILTER_PAETH));
-    }
-
-    #[test]
-    fn test_apply_filters_adaptive_sampled_reuses_filter() {
-        let data = vec![
-            10, 20, 30, 40, 50, 60, // Row 1
-            11, 21, 31, 41, 51, 61, // Row 2
-            12, 22, 32, 42, 52, 62, // Row 3
-            13, 23, 33, 43, 53, 63, // Row 4
-        ];
-        let options = PngOptions {
-            filter_strategy: FilterStrategy::AdaptiveSampled { interval: 2 },
-            ..Default::default()
-        };
-
-        let filtered = apply_filters(&data, 2, 4, 3, &options);
-
-        // 4 rows, each with filter byte + 6 data bytes
-        assert_eq!(filtered.len(), 4 * (1 + 6));
-        let f1 = filtered[0];
-        let f2 = filtered[7];
-        let f3 = filtered[14];
-        let f4 = filtered[21];
-        // Rows 2 and 4 reuse previous filters
-        assert_eq!(f2, f1);
-        assert_eq!(f4, f3);
     }
 }

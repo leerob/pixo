@@ -36,6 +36,16 @@ struct Args {
     /// JPEG quality (1-100, higher = better quality)
     #[arg(short, long, default_value = "85", value_parser = clap::value_parser!(u8).range(1..=100))]
     quality: u8,
+    /// Optimize JPEG Huffman tables (smaller files, slower)
+    #[arg(long, default_value_t = false)]
+    jpeg_optimize_huffman: bool,
+    /// JPEG restart interval in MCUs (1-65535). Use to improve error resilience.
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u16).range(1..=65535),
+        default_value = "0"
+    )]
+    jpeg_restart_interval: u16,
 
     /// PNG compression level (1-9, higher = smaller file)
     #[arg(short = 'c', long, default_value = "2", value_parser = clap::value_parser!(u8).range(1..=9))]
@@ -53,13 +63,17 @@ struct Args {
     #[arg(long, value_enum)]
     png_preset: Option<PngPresetArg>,
 
-    /// Interval for adaptive-sampled filter (rows between full evaluations)
-    #[arg(
-        long,
-        default_value = "4",
-        value_parser = clap::value_parser!(u32).range(1..=1_000_000)
-    )]
-    adaptive_sample_interval: u32,
+    /// Optimize fully transparent pixels by zeroing color channels (PNG)
+    #[arg(long, default_value_t = false)]
+    png_optimize_alpha: bool,
+
+    /// Reduce color type when lossless-safe (e.g., RGBA→RGB/GrayAlpha, RGB→Gray)
+    #[arg(long, default_value_t = false)]
+    png_reduce_color: bool,
+
+    /// Strip non-critical metadata (tEXt/zTXt/iTXt/tIME) from PNG output
+    #[arg(long, default_value_t = false)]
+    png_strip_metadata: bool,
 
     /// Convert to grayscale
     #[arg(long)]
@@ -109,37 +123,35 @@ enum FilterArg {
     Average,
     /// Paeth filter
     Paeth,
+    /// Min-sum filter selection (oxipng-style)
+    Minsum,
     /// Adaptive filter selection (best compression)
     Adaptive,
     /// Adaptive with reduced trials and early cutoffs (faster)
     AdaptiveFast,
-    /// Adaptive on sampled rows, reuse chosen filter between samples
-    AdaptiveSampled,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum PngPresetArg {
-    /// Fastest settings (level 2, AdaptiveFast)
+    /// Fastest settings (level 2, AdaptiveFast, no optimizations)
     Fast,
-    /// Balanced settings (level 6, Adaptive)
+    /// Balanced settings (level 6, Adaptive, all optimizations)
     Balanced,
-    /// Maximum compression (level 9, AdaptiveSampled interval=2)
+    /// Maximum compression (level 9, MinSum, all optimizations)
     Max,
 }
 
 impl FilterArg {
-    fn to_strategy(self, sampled_interval: u32) -> FilterStrategy {
+    fn to_strategy(self) -> FilterStrategy {
         match self {
             FilterArg::None => FilterStrategy::None,
             FilterArg::Sub => FilterStrategy::Sub,
             FilterArg::Up => FilterStrategy::Up,
             FilterArg::Average => FilterStrategy::Average,
             FilterArg::Paeth => FilterStrategy::Paeth,
+            FilterArg::Minsum => FilterStrategy::MinSum,
             FilterArg::Adaptive => FilterStrategy::Adaptive,
             FilterArg::AdaptiveFast => FilterStrategy::AdaptiveFast,
-            FilterArg::AdaptiveSampled => FilterStrategy::AdaptiveSampled {
-                interval: sampled_interval.max(1),
-            },
         }
     }
 }
@@ -460,15 +472,39 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut options = match args.png_preset {
                 Some(PngPresetArg::Fast) => PngOptions::fast(),
                 Some(PngPresetArg::Balanced) => PngOptions::balanced(),
-                Some(PngPresetArg::Max) => PngOptions::max_compression(),
+                Some(PngPresetArg::Max) => PngOptions::max(),
                 None => PngOptions {
                     compression_level: args.compression,
-                    filter_strategy: args.filter.to_strategy(args.adaptive_sample_interval),
+                    filter_strategy: args.filter.to_strategy(),
+                    optimize_alpha: args.png_optimize_alpha,
+                    reduce_color_type: args.png_reduce_color,
+                    strip_metadata: args.png_strip_metadata,
+                    reduce_palette: args.png_reduce_color,
+                    verbose_filter_log: args.verbose,
+                    optimal_compression: false,
                 },
             };
             // Allow explicit overrides if preset is provided but user also set flags.
             options.compression_level = args.compression;
-            options.filter_strategy = args.filter.to_strategy(args.adaptive_sample_interval);
+            options.filter_strategy = args.filter.to_strategy();
+            options.optimize_alpha = args.png_optimize_alpha;
+            options.reduce_color_type = args.png_reduce_color;
+            options.strip_metadata = args.png_strip_metadata;
+            options.reduce_palette = args.png_reduce_color;
+            options.verbose_filter_log = args.verbose;
+
+            if args.verbose {
+                eprintln!(
+                    "PNG options: preset={:?}, level={}, filter={:?}, optimize_alpha={}, reduce_color_type={}, reduce_palette={}, strip_metadata={}",
+                    args.png_preset.unwrap_or(PngPresetArg::Fast),
+                    options.compression_level,
+                    options.filter_strategy,
+                    options.optimize_alpha,
+                    options.reduce_color_type,
+                    options.reduce_palette,
+                    options.strip_metadata
+                );
+            }
 
             comprs::png::encode_into(
                 &mut output_data,
@@ -483,8 +519,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let options = JpegOptions {
                 quality: args.quality,
                 subsampling: args.subsampling.into(),
-                restart_interval: None,
+                restart_interval: if args.jpeg_restart_interval == 0 {
+                    None
+                } else {
+                    Some(args.jpeg_restart_interval)
+                },
+                optimize_huffman: args.jpeg_optimize_huffman,
+                progressive: false,
+                trellis_quant: false,
             };
+            if args.verbose {
+                eprintln!(
+                    "JPEG options: quality={}, subsampling={:?}, restart_interval={:?}, optimize_huffman={}",
+                    options.quality,
+                    options.subsampling,
+                    options.restart_interval,
+                    options.optimize_huffman
+                );
+            }
             comprs::jpeg::encode_with_options_into(
                 &mut output_data,
                 &pixels,

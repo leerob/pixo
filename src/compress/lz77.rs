@@ -2,6 +2,10 @@
 //!
 //! LZ77 finds repeated sequences in the input and replaces them with
 //! (length, distance) pairs referring back to previous occurrences.
+//!
+//! This module supports two parsing strategies:
+//! - **Greedy parsing**: Fast, finds longest match at each position
+//! - **Optimal parsing**: Slower, uses dynamic programming to find globally optimal tokenization
 
 /// Maximum distance to look back for matches (32KB window).
 pub const MAX_DISTANCE: usize = 32768;
@@ -552,6 +556,380 @@ impl Lz77Compressor {
         self.prev[pos % MAX_DISTANCE] = self.head[hash];
         self.head[hash] = pos as i32;
     }
+
+    /// Find all matches at the given position and return the shortest distance for each length.
+    ///
+    /// Returns (sublen, max_length) where:
+    /// - `sublen[len]` = shortest distance that achieves a match of length `len` (0 if none)
+    /// - `max_length` = longest match found
+    ///
+    /// This is the key optimization from Zopfli: tracking sublen allows optimal parsing to
+    /// consider all possible match lengths, not just the longest.
+    fn find_match_with_sublen(&self, data: &[u8], pos: usize) -> ([u16; 259], usize) {
+        let mut sublen = [0u16; 259]; // sublen[length] = best distance for that length
+        let mut max_length = 0usize;
+
+        if pos + MIN_MATCH_LENGTH > data.len() {
+            return (sublen, 0);
+        }
+
+        let hash = hash4(data, pos);
+        let mut chain_pos = self.head[hash];
+        let max_distance = pos.min(MAX_DISTANCE);
+        let mut chain_remaining = self.max_chain_length;
+
+        while chain_pos >= 0 && chain_remaining > 0 {
+            let match_pos = chain_pos as usize;
+            let distance = pos - match_pos;
+
+            if distance > max_distance {
+                break;
+            }
+
+            let length = self.match_length(data, match_pos, pos);
+
+            if length >= MIN_MATCH_LENGTH {
+                // For each length from MIN_MATCH_LENGTH to length, if we haven't
+                // seen a match of that length yet OR this distance is shorter,
+                // record it. Shorter distances are better for compression.
+                for len in MIN_MATCH_LENGTH..=length {
+                    if sublen[len] == 0 || (distance as u16) < sublen[len] {
+                        sublen[len] = distance as u16;
+                    }
+                }
+                if length > max_length {
+                    max_length = length;
+                    if max_length >= MAX_MATCH_LENGTH {
+                        break;
+                    }
+                }
+            }
+
+            chain_pos = self.prev[match_pos % MAX_DISTANCE];
+            chain_remaining -= 1;
+        }
+
+        (sublen, max_length)
+    }
+
+    /// Optimal LZ77 parsing using forward dynamic programming.
+    ///
+    /// This implements the core Zopfli technique: instead of greedily choosing
+    /// the longest match at each position, we use DP to find the globally optimal
+    /// sequence of tokens that minimizes total bit cost.
+    ///
+    /// # Algorithm
+    /// 1. Forward pass: For each position, try literal and all match lengths
+    /// 2. Track minimum cost to reach each position and the length that achieved it
+    /// 3. Backward pass: Trace back from end to reconstruct optimal token sequence
+    pub fn compress_optimal(&mut self, data: &[u8], cost_model: &CostModel) -> Vec<Token> {
+        if data.is_empty() {
+            return Vec::new();
+        }
+
+        let n = data.len();
+
+        // Reset hash tables
+        self.head.fill(-1);
+        self.prev.fill(-1);
+
+        // costs[i] = minimum cost to encode bytes 0..i
+        // length_array[i] = length of token that ends at position i in the optimal path
+        // dist_array[i] = distance for that token (0 for literals)
+        let mut costs = vec![f32::MAX; n + 1];
+        let mut length_array = vec![0u16; n + 1];
+        let mut dist_array = vec![0u16; n + 1];
+
+        costs[0] = 0.0;
+
+        // Forward pass: compute minimum cost to reach each position
+        for i in 0..n {
+            if costs[i] >= f32::MAX {
+                continue;
+            }
+
+            // Update hash for this position
+            self.update_hash(data, i);
+
+            // Try emitting a literal
+            let lit_cost = costs[i] + cost_model.literal_cost(data[i]);
+            if lit_cost < costs[i + 1] {
+                costs[i + 1] = lit_cost;
+                length_array[i + 1] = 1;
+                dist_array[i + 1] = 0;
+            }
+
+            // Find all matches at this position
+            let (sublen, max_len) = self.find_match_with_sublen(data, i);
+
+            // Try each possible match length
+            for len in MIN_MATCH_LENGTH..=max_len {
+                let dist = sublen[len];
+                if dist == 0 {
+                    continue;
+                }
+
+                let match_cost = costs[i] + cost_model.match_cost(len as u16, dist);
+                let end_pos = i + len;
+                if end_pos <= n && match_cost < costs[end_pos] {
+                    costs[end_pos] = match_cost;
+                    length_array[end_pos] = len as u16;
+                    dist_array[end_pos] = dist;
+                }
+            }
+        }
+
+        // Backward pass: reconstruct optimal token sequence
+        self.trace_backwards(&length_array, &dist_array, data)
+    }
+
+    /// Trace backwards through the DP solution to reconstruct optimal tokens.
+    fn trace_backwards(&self, length_array: &[u16], dist_array: &[u16], data: &[u8]) -> Vec<Token> {
+        let n = data.len();
+        let mut tokens = Vec::new();
+
+        // Count how many tokens we'll have by walking backwards
+        let mut pos = n;
+        while pos > 0 {
+            let len = length_array[pos] as usize;
+            if len == 0 {
+                // This shouldn't happen if the DP completed correctly
+                break;
+            }
+            pos -= len;
+        }
+
+        // We need to walk forward using the lengths stored at each endpoint
+        // length_array[i] tells us the length of the token that ENDS at position i
+        // So we need to find the sequence of endpoints
+
+        // First, collect all the lengths by walking backward
+        let mut lengths_rev = Vec::new();
+        let mut p = n;
+        while p > 0 {
+            let len = length_array[p] as usize;
+            let dist = dist_array[p];
+            if len == 0 {
+                break;
+            }
+            lengths_rev.push((len, dist));
+            p -= len;
+        }
+
+        // Now emit tokens in forward order
+        let mut data_pos = 0;
+        for (len, dist) in lengths_rev.into_iter().rev() {
+            if len == 1 && dist == 0 {
+                // Literal
+                tokens.push(Token::Literal(data[data_pos]));
+            } else {
+                // Match
+                tokens.push(Token::Match {
+                    length: len as u16,
+                    distance: dist,
+                });
+            }
+            data_pos += len;
+        }
+
+        tokens
+    }
+}
+
+// ============================================================================
+// Cost Model for Optimal Parsing
+// ============================================================================
+
+/// Cost model for computing bit costs of literals and matches.
+///
+/// The cost model can use fixed estimates or actual Huffman bit lengths
+/// derived from symbol statistics. Using actual statistics enables
+/// iterative refinement (the key to Zopfli's effectiveness).
+#[derive(Clone)]
+pub struct CostModel {
+    /// Bit cost for each literal byte (0-255) and length symbol (256-285)
+    pub lit_len_costs: [f32; 286],
+    /// Bit cost for each distance symbol (0-29)
+    pub dist_costs: [f32; 30],
+}
+
+impl CostModel {
+    /// Create a cost model with fixed estimates.
+    ///
+    /// Uses approximate costs based on fixed Huffman code lengths.
+    /// Good for initial pass before we have actual statistics.
+    pub fn fixed() -> Self {
+        let mut lit_len_costs = [0.0f32; 286];
+        let mut dist_costs = [0.0f32; 30];
+
+        // Fixed Huffman: literals 0-143 = 8 bits, 144-255 = 9 bits
+        for i in 0..144 {
+            lit_len_costs[i] = 8.0;
+        }
+        for i in 144..256 {
+            lit_len_costs[i] = 9.0;
+        }
+        // End of block (256) and length codes (257-279) = 7 bits
+        for i in 256..280 {
+            lit_len_costs[i] = 7.0;
+        }
+        // Length codes 280-285 = 8 bits
+        for i in 280..286 {
+            lit_len_costs[i] = 8.0;
+        }
+
+        // Fixed Huffman: all distance codes = 5 bits
+        for i in 0..30 {
+            dist_costs[i] = 5.0;
+        }
+
+        Self {
+            lit_len_costs,
+            dist_costs,
+        }
+    }
+
+    /// Create a cost model from symbol frequency counts.
+    ///
+    /// Computes bit costs using entropy: cost = -log2(frequency/total)
+    /// This is the foundation of iterative refinement.
+    pub fn from_statistics(lit_len_counts: &[u32; 286], dist_counts: &[u32; 30]) -> Self {
+        let mut lit_len_costs = [0.0f32; 286];
+        let mut dist_costs = [0.0f32; 30];
+
+        // Compute literal/length costs from entropy
+        let lit_total: u32 = lit_len_counts.iter().sum();
+        if lit_total > 0 {
+            let log_total = (lit_total as f32).log2();
+            for (i, &count) in lit_len_counts.iter().enumerate() {
+                if count > 0 {
+                    // cost = -log2(p) = log2(total) - log2(count)
+                    lit_len_costs[i] = log_total - (count as f32).log2();
+                } else {
+                    // Unseen symbols get high cost (but not infinite)
+                    lit_len_costs[i] = 15.0;
+                }
+            }
+        } else {
+            // Fallback to fixed costs
+            return Self::fixed();
+        }
+
+        // Compute distance costs from entropy
+        let dist_total: u32 = dist_counts.iter().sum();
+        if dist_total > 0 {
+            let log_total = (dist_total as f32).log2();
+            for (i, &count) in dist_counts.iter().enumerate() {
+                if count > 0 {
+                    dist_costs[i] = log_total - (count as f32).log2();
+                } else {
+                    dist_costs[i] = 15.0;
+                }
+            }
+        } else {
+            // No distance symbols seen - use fixed
+            for i in 0..30 {
+                dist_costs[i] = 5.0;
+            }
+        }
+
+        Self {
+            lit_len_costs,
+            dist_costs,
+        }
+    }
+
+    /// Compute the bit cost of emitting a literal.
+    #[inline]
+    pub fn literal_cost(&self, byte: u8) -> f32 {
+        self.lit_len_costs[byte as usize]
+    }
+
+    /// Compute the bit cost of emitting a match (length + distance).
+    #[inline]
+    pub fn match_cost(&self, length: u16, distance: u16) -> f32 {
+        // Get length symbol (257-285) and extra bits
+        let (len_symbol, len_extra_bits) = length_to_symbol(length);
+        let len_cost = self.lit_len_costs[len_symbol as usize] + len_extra_bits as f32;
+
+        // Get distance symbol (0-29) and extra bits
+        let (dist_symbol, dist_extra_bits) = distance_to_symbol(distance);
+        let dist_cost = self.dist_costs[dist_symbol as usize] + dist_extra_bits as f32;
+
+        len_cost + dist_cost
+    }
+}
+
+impl Default for CostModel {
+    fn default() -> Self {
+        Self::fixed()
+    }
+}
+
+// ============================================================================
+// Symbol Encoding Tables (shared with deflate.rs)
+// ============================================================================
+
+/// Length code base values (codes 257-285).
+const LENGTH_BASE: [u16; 29] = [
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
+    163, 195, 227, 258,
+];
+
+/// Extra bits for length codes.
+const LENGTH_EXTRA: [u8; 29] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+];
+
+/// Distance code base values (codes 0-29).
+/// Used for reference; actual lookup uses bit manipulation for efficiency.
+#[allow(dead_code)]
+const DISTANCE_BASE: [u16; 30] = [
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
+    2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
+];
+
+/// Extra bits for distance codes.
+const DISTANCE_EXTRA: [u8; 30] = [
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13,
+    13,
+];
+
+/// Convert a match length to its DEFLATE symbol and extra bits count.
+#[inline]
+fn length_to_symbol(length: u16) -> (u16, u8) {
+    debug_assert!(
+        (MIN_MATCH_LENGTH as u16..=MAX_MATCH_LENGTH as u16).contains(&length),
+        "Invalid length: {length}"
+    );
+
+    // Binary search would be O(log n), but linear scan is fine for 29 entries
+    // and often faster due to early termination
+    for i in 0..28 {
+        if length < LENGTH_BASE[i + 1] {
+            return (257 + i as u16, LENGTH_EXTRA[i]);
+        }
+    }
+    (285, 0) // length 258
+}
+
+/// Convert a match distance to its DEFLATE symbol and extra bits count.
+#[inline]
+fn distance_to_symbol(distance: u16) -> (u16, u8) {
+    debug_assert!((1..=32768).contains(&distance), "Invalid distance");
+
+    if distance < 5 {
+        return (distance - 1, 0);
+    }
+
+    // For larger distances, use bit manipulation
+    let d = distance as u32 - 1;
+    let msb = 31 - d.leading_zeros();
+    let second_bit = (d >> (msb - 1)) & 1;
+    let code = (2 * msb + second_bit) as usize;
+    let code = code.min(29);
+
+    (code as u16, DISTANCE_EXTRA[code])
 }
 
 /// After this many consecutive literals, assume data is mostly incompressible and
@@ -672,5 +1050,120 @@ mod tests {
             Some((10, 32768)),
             "Match with max distance failed to roundtrip correctly"
         );
+    }
+
+    #[test]
+    fn test_optimal_lz77_empty() {
+        let mut compressor = Lz77Compressor::new(6);
+        let cost_model = CostModel::fixed();
+        let tokens = compressor.compress_optimal(&[], &cost_model);
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn test_optimal_lz77_no_matches() {
+        let mut compressor = Lz77Compressor::new(6);
+        let cost_model = CostModel::fixed();
+        let data = b"abcdefgh";
+        let tokens = compressor.compress_optimal(data, &cost_model);
+
+        // All literals
+        assert_eq!(tokens.len(), 8);
+        for (i, &token) in tokens.iter().enumerate() {
+            assert_eq!(token, Token::Literal(data[i]));
+        }
+    }
+
+    #[test]
+    fn test_optimal_lz77_simple_repeat() {
+        let mut compressor = Lz77Compressor::new(6);
+        let cost_model = CostModel::fixed();
+        let data = b"abcabcabc";
+        let tokens = compressor.compress_optimal(data, &cost_model);
+
+        // Should have "abc" as literals, then matches (same as greedy for this case)
+        assert!(
+            tokens.len() < 9,
+            "Expected fewer than 9 tokens, got {}",
+            tokens.len()
+        );
+    }
+
+    #[test]
+    fn test_optimal_lz77_produces_valid_tokens() {
+        let mut compressor = Lz77Compressor::new(6);
+        let cost_model = CostModel::fixed();
+        let data = b"The quick brown fox jumps over the lazy dog. The quick brown fox jumps.";
+        let tokens = compressor.compress_optimal(data, &cost_model);
+
+        // Verify we can reconstruct the original data from tokens
+        let mut reconstructed = Vec::new();
+        for token in &tokens {
+            match token {
+                Token::Literal(b) => reconstructed.push(*b),
+                Token::Match { length, distance } => {
+                    let start = reconstructed.len() - *distance as usize;
+                    for i in 0..*length as usize {
+                        reconstructed.push(reconstructed[start + i]);
+                    }
+                }
+            }
+        }
+        assert_eq!(reconstructed.as_slice(), data.as_slice());
+    }
+
+    #[test]
+    fn test_cost_model_fixed() {
+        let model = CostModel::fixed();
+
+        // Literal 'a' (97) should cost 8 bits (it's in 0-143 range)
+        assert!((model.literal_cost(b'a') - 8.0).abs() < 0.01);
+
+        // Literal 200 should cost 9 bits (it's in 144-255 range)
+        assert!((model.literal_cost(200) - 9.0).abs() < 0.01);
+
+        // Match cost should include length symbol + extra bits + distance symbol + extra bits
+        let match_cost = model.match_cost(3, 1);
+        // Length 3 = symbol 257 (7 bits, 0 extra), distance 1 = symbol 0 (5 bits, 0 extra)
+        assert!((match_cost - 12.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_cost_model_from_statistics() {
+        let mut lit_counts = [0u32; 286];
+        let mut dist_counts = [0u32; 30];
+
+        // Simulate a distribution where 'a' is very common
+        lit_counts[b'a' as usize] = 100;
+        lit_counts[b'b' as usize] = 10;
+        lit_counts[256] = 1; // end of block
+
+        dist_counts[0] = 50;
+        dist_counts[1] = 10;
+
+        let model = CostModel::from_statistics(&lit_counts, &dist_counts);
+
+        // 'a' should have lower cost than 'b' (more frequent)
+        assert!(model.literal_cost(b'a') < model.literal_cost(b'b'));
+    }
+
+    #[test]
+    fn test_length_to_symbol() {
+        // Test boundary cases
+        assert_eq!(length_to_symbol(3), (257, 0)); // min length
+        assert_eq!(length_to_symbol(10), (264, 0)); // last 0-extra-bit code
+        assert_eq!(length_to_symbol(11), (265, 1)); // first 1-extra-bit code
+        assert_eq!(length_to_symbol(258), (285, 0)); // max length
+    }
+
+    #[test]
+    fn test_distance_to_symbol() {
+        // Test small distances (direct lookup)
+        assert_eq!(distance_to_symbol(1), (0, 0));
+        assert_eq!(distance_to_symbol(4), (3, 0));
+
+        // Test larger distances (bit manipulation)
+        assert_eq!(distance_to_symbol(5), (4, 1));
+        assert_eq!(distance_to_symbol(6), (4, 1));
     }
 }

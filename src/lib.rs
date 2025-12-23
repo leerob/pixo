@@ -35,6 +35,7 @@
 // Allow unsafe code only when SIMD or WASM feature is enabled
 #![cfg_attr(not(any(feature = "simd", feature = "wasm")), forbid(unsafe_code))]
 #![warn(missing_docs)]
+#![allow(clippy::needless_range_loop)]
 
 pub mod bits;
 pub mod color;

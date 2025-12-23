@@ -8,6 +8,9 @@ export type PngFilter =
 	| 'average'
 	| 'paeth';
 
+/** Preset levels: 0=fast, 1=balanced, 2=max */
+export type PresetLevel = 0 | 1 | 2;
+
 export type CompressOptions = {
 	format: EncodeFormat;
 	quality?: number; // JPEG quality 1-100
@@ -15,6 +18,8 @@ export type CompressOptions = {
 	filter?: PngFilter;
 	subsampling420?: boolean;
 	hasAlpha?: boolean; // If false, strip alpha channel for smaller output
+	optimizeHuffman?: boolean; // JPEG: optimize Huffman tables (smaller, slower)
+	preset?: PresetLevel; // Preset level: 0=faster, 1=auto, 2=smallest
 };
 
 export type CompressResult = {
@@ -68,25 +73,64 @@ export async function compressImage(imageData: ImageData, options: CompressOptio
 	let mime: string;
 
 	if (options.format === 'png') {
-		const compressionLevel = clamp(options.compressionLevel ?? 6, 1, 9);
-		const filterCode = filterMap[options.filter ?? 'adaptive'];
-
 		// If the image has no meaningful alpha, encode as RGB (color_type 2) for smaller output
 		// This avoids the overhead of encoding an all-255 alpha channel
 		const useRgb = options.hasAlpha === false;
+		const colorType = useRgb ? 2 : 3;
+		const pixelData = useRgb ? rgbaToRgb(imageData.data) : new Uint8Array(imageData.data);
 
-		if (useRgb) {
-			const rgb = rgbaToRgb(imageData.data);
-			bytes = wasmModule.encodePngWithFilter(rgb, imageData.width, imageData.height, 2, compressionLevel, filterCode);
+		// Use preset-based encoding if a preset is specified
+		if (options.preset !== undefined) {
+			const encodePngPreset = (wasmModule as any).encodePngPreset as
+				| undefined
+				| ((d: Uint8Array, w: number, h: number, ct: number, preset: number) => Uint8Array);
+			if (encodePngPreset) {
+				bytes = encodePngPreset(pixelData, imageData.width, imageData.height, colorType, options.preset);
+			} else {
+				// Fallback to filter-based encoding
+				const compressionLevel = clamp(options.compressionLevel ?? 6, 1, 9);
+				const filterCode = filterMap[options.filter ?? 'adaptive'];
+				bytes = wasmModule.encodePngWithFilter(pixelData, imageData.width, imageData.height, colorType, compressionLevel, filterCode);
+			}
 		} else {
-			const rgba = new Uint8Array(imageData.data);
-			bytes = wasmModule.encodePngWithFilter(rgba, imageData.width, imageData.height, 3, compressionLevel, filterCode);
+			const compressionLevel = clamp(options.compressionLevel ?? 6, 1, 9);
+			const filterCode = filterMap[options.filter ?? 'adaptive'];
+			bytes = wasmModule.encodePngWithFilter(pixelData, imageData.width, imageData.height, colorType, compressionLevel, filterCode);
 		}
 		mime = 'image/png';
 	} else {
 		const quality = clamp(options.quality ?? 85, 1, 100);
 		const rgb = rgbaToRgb(imageData.data);
-		bytes = wasmModule.encodeJpeg(rgb, imageData.width, imageData.height, quality, 2, options.subsampling420 ?? true);
+
+		// Use preset-based encoding if a preset is specified
+		if (options.preset !== undefined) {
+			const encodeJpegPreset = (wasmModule as any).encodeJpegPreset as
+				| undefined
+				| ((d: Uint8Array, w: number, h: number, q: number, ct: number, preset: number) => Uint8Array);
+			if (encodeJpegPreset) {
+				bytes = encodeJpegPreset(rgb, imageData.width, imageData.height, quality, 2, options.preset);
+			} else {
+				// Fallback to auto preset behavior (optimize Huffman enabled)
+				const encoderWithOpts = (wasmModule as any).encodeJpegWithOptions as
+					| undefined
+					| ((d: Uint8Array, w: number, h: number, q: number, ct: number, subs420: boolean, opt: boolean) => Uint8Array);
+				if (encoderWithOpts) {
+					bytes = encoderWithOpts(rgb, imageData.width, imageData.height, quality, 2, options.subsampling420 ?? true, true);
+				} else {
+					bytes = wasmModule.encodeJpeg(rgb, imageData.width, imageData.height, quality, 2, options.subsampling420 ?? true);
+				}
+			}
+		} else {
+			const optimize = options.optimizeHuffman ?? false;
+			const encoderWithOpts = (wasmModule as any).encodeJpegWithOptions as
+				| undefined
+				| ((d: Uint8Array, w: number, h: number, q: number, ct: number, subs420: boolean, opt: boolean) => Uint8Array);
+			if (encoderWithOpts) {
+				bytes = encoderWithOpts(rgb, imageData.width, imageData.height, quality, 2, options.subsampling420 ?? true, optimize);
+			} else {
+				bytes = wasmModule.encodeJpeg(rgb, imageData.width, imageData.height, quality, 2, options.subsampling420 ?? true);
+			}
+		}
 		mime = 'image/jpeg';
 	}
 

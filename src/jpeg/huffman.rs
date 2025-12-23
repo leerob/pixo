@@ -4,6 +4,8 @@
 
 use crate::bits::BitWriterMsb;
 use crate::jpeg::quantize::zigzag_reorder;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 
 /// Standard DC luminance Huffman table (number of codes per bit length).
 const DC_LUM_BITS: [u8; 16] = [0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
@@ -127,6 +129,73 @@ impl HuffmanTables {
             self.ac_chrom_codes[rs as usize]
         }
     }
+
+    /// Create Huffman tables from per-symbol code lengths (bits/vals).
+    #[allow(clippy::too_many_arguments)]
+    fn from_bits_vals(
+        dc_lum_bits: [u8; 16],
+        dc_lum_vals: Vec<u8>,
+        dc_chrom_bits: [u8; 16],
+        dc_chrom_vals: Vec<u8>,
+        ac_lum_bits: [u8; 16],
+        ac_lum_vals: Vec<u8>,
+        ac_chrom_bits: [u8; 16],
+        ac_chrom_vals: Vec<u8>,
+    ) -> Option<Self> {
+        let dc_lum_codes = build_code_table::<12>(&dc_lum_bits, &dc_lum_vals, 12)?;
+        let dc_chrom_codes = build_code_table::<12>(&dc_chrom_bits, &dc_chrom_vals, 12)?;
+        let ac_lum_codes = build_code_table::<256>(&ac_lum_bits, &ac_lum_vals, 256)?;
+        let ac_chrom_codes = build_code_table::<256>(&ac_chrom_bits, &ac_chrom_vals, 256)?;
+
+        Some(Self {
+            dc_lum_bits,
+            dc_lum_vals,
+            dc_chrom_bits,
+            dc_chrom_vals,
+            ac_lum_bits,
+            ac_lum_vals,
+            ac_chrom_bits,
+            ac_chrom_vals,
+            dc_lum_codes,
+            dc_chrom_codes,
+            ac_lum_codes,
+            ac_chrom_codes,
+        })
+    }
+
+    /// Build optimized Huffman tables from symbol frequency counts.
+    /// Falls back to defaults if lengths exceed the JPEG limit (16 bits) or counts are empty.
+    pub fn optimized_from_counts(
+        dc_lum_counts: &[u64; 12],
+        dc_chrom_counts: Option<&[u64; 12]>,
+        ac_lum_counts: &[u64; 256],
+        ac_chrom_counts: Option<&[u64; 256]>,
+    ) -> Option<Self> {
+        let (dc_lum_bits, dc_lum_vals) = build_bits_vals(dc_lum_counts)?;
+        let (ac_lum_bits, ac_lum_vals) = build_bits_vals(ac_lum_counts)?;
+
+        let (dc_chrom_bits, dc_chrom_vals) = if let Some(counts) = dc_chrom_counts {
+            build_bits_vals(counts).unwrap_or((DC_CHROM_BITS, DC_CHROM_VALS.to_vec()))
+        } else {
+            (DC_CHROM_BITS, DC_CHROM_VALS.to_vec())
+        };
+        let (ac_chrom_bits, ac_chrom_vals) = if let Some(counts) = ac_chrom_counts {
+            build_bits_vals(counts).unwrap_or((AC_CHROM_BITS, AC_CHROM_VALS.to_vec()))
+        } else {
+            (AC_CHROM_BITS, AC_CHROM_VALS.to_vec())
+        };
+
+        HuffmanTables::from_bits_vals(
+            dc_lum_bits,
+            dc_lum_vals,
+            dc_chrom_bits,
+            dc_chrom_vals,
+            ac_lum_bits,
+            ac_lum_vals,
+            ac_chrom_bits,
+            ac_chrom_vals,
+        )
+    }
 }
 
 impl Default for HuffmanTables {
@@ -183,6 +252,136 @@ fn build_codes_256(bits: &[u8; 16], vals: &[u8]) -> [HuffCode; 256] {
     }
 
     codes
+}
+
+/// Build canonical code table for arbitrary symbol count using JPEG bits/vals format.
+fn build_code_table<const N: usize>(
+    bits: &[u8; 16],
+    vals: &[u8],
+    table_len: usize,
+) -> Option<[HuffCode; N]> {
+    let mut codes = [HuffCode::default(); N];
+    let mut code: u16 = 0;
+    let mut val_idx = 0usize;
+    for (length, &count) in bits.iter().enumerate() {
+        for _ in 0..count {
+            if val_idx >= vals.len() {
+                return None;
+            }
+            let symbol = vals[val_idx] as usize;
+            if symbol >= table_len {
+                return None;
+            }
+            codes[symbol] = HuffCode {
+                code,
+                length: (length + 1) as u8,
+            };
+            val_idx += 1;
+            code += 1;
+        }
+        code <<= 1;
+    }
+    Some(codes)
+}
+
+/// Build bits/vals arrays from symbol frequencies. Returns None if all zero or depths exceed 16.
+fn build_bits_vals(counts: &[u64]) -> Option<([u8; 16], Vec<u8>)> {
+    let lengths = build_code_lengths(counts)?;
+    let mut bits = [0u8; 16];
+    for &len in &lengths {
+        if len == 0 {
+            continue;
+        }
+        if len as usize > bits.len() {
+            return None;
+        }
+        bits[(len - 1) as usize] += 1;
+    }
+    // vals ordered by increasing length then symbol id
+    let mut vals: Vec<u8> = (0..lengths.len())
+        .filter(|&i| lengths[i] > 0)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|i| i as u8)
+        .collect();
+    vals.sort_by_key(|&sym| (lengths[sym as usize], sym));
+    Some((bits, vals))
+}
+
+/// Build canonical code lengths via Huffman tree (no length limiting beyond 16; returns None on overflow).
+fn build_code_lengths(counts: &[u64]) -> Option<Vec<u8>> {
+    #[derive(Clone)]
+    struct Node {
+        _freq: u64,
+        left: Option<usize>,
+        right: Option<usize>,
+        symbol: Option<usize>,
+    }
+
+    let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
+    let mut nodes: Vec<Node> = Vec::new();
+
+    for (sym, &freq) in counts.iter().enumerate() {
+        if freq == 0 {
+            continue;
+        }
+        let idx = nodes.len();
+        nodes.push(Node {
+            _freq: freq,
+            left: None,
+            right: None,
+            symbol: Some(sym),
+        });
+        heap.push(Reverse((freq, idx)));
+    }
+
+    if heap.is_empty() {
+        return None;
+    }
+
+    // Special case: only one symbol
+    if heap.len() == 1 {
+        let mut lengths = vec![0u8; counts.len()];
+        let sym = nodes[heap.peek()?.0 .1].symbol?;
+        lengths[sym] = 1;
+        return Some(lengths);
+    }
+
+    // Build tree
+    while heap.len() > 1 {
+        let Reverse((f1, i1)) = heap.pop().unwrap();
+        let Reverse((f2, i2)) = heap.pop().unwrap();
+        let idx = nodes.len();
+        nodes.push(Node {
+            _freq: f1 + f2,
+            left: Some(i1),
+            right: Some(i2),
+            symbol: None,
+        });
+        heap.push(Reverse((f1 + f2, idx)));
+    }
+
+    let root = heap.pop().unwrap().0 .1;
+    let mut lengths = vec![0u8; counts.len()];
+    let mut stack = vec![(root, 0u8)];
+    while let Some((idx, depth)) = stack.pop() {
+        let node = &nodes[idx];
+        if let Some(sym) = node.symbol {
+            let len = depth + 1;
+            if len > 16 {
+                return None;
+            }
+            lengths[sym] = len;
+        } else {
+            if let Some(l) = node.left {
+                stack.push((l, depth + 1));
+            }
+            if let Some(r) = node.right {
+                stack.push((r, depth + 1));
+            }
+        }
+    }
+    Some(lengths)
 }
 
 /// Get the category (number of bits needed) for a value.

@@ -100,6 +100,9 @@ fn jpeg_encoding_benchmark(c: &mut Criterion) {
             quality: 85,
             subsampling: jpeg::Subsampling::S420,
             restart_interval: None,
+            optimize_huffman: false,
+            progressive: false,
+            trellis_quant: false,
         };
 
         group.bench_with_input(
@@ -118,6 +121,9 @@ fn jpeg_encoding_benchmark(c: &mut Criterion) {
                             quality: 85,
                             subsampling: jpeg::Subsampling::S444,
                             restart_interval: None,
+                            optimize_huffman: false,
+                            progressive: false,
+                            trellis_quant: false,
                         },
                     )
                     .unwrap()
@@ -254,6 +260,9 @@ fn compression_ratio_benchmark(c: &mut Criterion) {
                             quality: *quality,
                             subsampling: jpeg::Subsampling::S444,
                             restart_interval: None,
+                            optimize_huffman: false,
+                            progressive: false,
+                            trellis_quant: false,
                         },
                     )
                     .unwrap();

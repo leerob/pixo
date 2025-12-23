@@ -1,14 +1,17 @@
 //! Comprehensive library comparison benchmark.
 //!
-//! Compares comprs against popular image compression libraries and produces
-//! a detailed summary table similar to the benchmarks/README.md format.
+//! Compares comprs against popular image compression libraries and external tools,
+//! including oxipng for PNG and mozjpeg for JPEG.
 //!
 //! Run with: cargo bench --bench comparison
 //!
 //! For a quick summary without full benchmarks:
-//!   cargo bench --bench comparison -- --quick
+//!   cargo bench --bench comparison -- --summary-only
 
+use std::fs;
 use std::io::Write as IoWrite;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use criterion::{black_box, criterion_group, BenchmarkId, Criterion, Throughput};
@@ -35,6 +38,7 @@ fn generate_gradient_image(width: u32, height: u32) -> Vec<u8> {
     pixels
 }
 
+#[allow(dead_code)]
 fn generate_noisy_image(width: u32, height: u32) -> Vec<u8> {
     let mut pixels = Vec::with_capacity((width * height * 3) as usize);
     let mut seed = 12345u32;
@@ -71,23 +75,145 @@ fn make_random(len: usize, mut seed: u32) -> Vec<u8> {
 }
 
 // ============================================================================
-// PNG Encoding Comparison
+// External Tool Detection (merged from codec_harness.rs)
 // ============================================================================
 
-fn bench_png_comparison(c: &mut Criterion) {
-    let mut group = c.benchmark_group("PNG Comparison");
+fn find_oxipng() -> Option<PathBuf> {
+    let paths = [
+        "vendor/oxipng/target/release/oxipng",
+        "/usr/local/bin/oxipng",
+        "/opt/homebrew/bin/oxipng",
+    ];
+    paths
+        .iter()
+        .find(|p| Path::new(p).exists())
+        .map(PathBuf::from)
+}
+
+fn find_cjpeg() -> Option<PathBuf> {
+    let paths = [
+        "vendor/mozjpeg/build/cjpeg",
+        "vendor/mozjpeg/cjpeg",
+        "/usr/local/bin/cjpeg",
+        "/opt/homebrew/bin/cjpeg",
+    ];
+    paths
+        .iter()
+        .find(|p| Path::new(p).exists())
+        .map(PathBuf::from)
+}
+
+// ============================================================================
+// External Tool Comparison (merged from codec_harness.rs)
+// ============================================================================
+
+/// Encode PNG with oxipng and return (size, duration)
+fn encode_with_oxipng(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    tmp_dir: &Path,
+) -> Option<(usize, Duration)> {
+    let oxipng_bin = find_oxipng()?;
+
+    // Write input PNG using image crate
+    let input_path = tmp_dir.join("oxipng_input.png");
+    let output_path = tmp_dir.join("oxipng_output.png");
+
+    {
+        let mut file = fs::File::create(&input_path).ok()?;
+        let encoder = image::codecs::png::PngEncoder::new(&mut file);
+        encoder
+            .write_image(pixels, width, height, image::ColorType::Rgb8)
+            .ok()?;
+    }
+
+    let start = Instant::now();
+    let status = Command::new(&oxipng_bin)
+        .args([
+            "-o",
+            "4",
+            "--strip",
+            "safe",
+            "--out",
+            output_path.to_str()?,
+            input_path.to_str()?,
+        ])
+        .output()
+        .ok()?;
+    let duration = start.elapsed();
+
+    if status.status.success() {
+        let size = fs::metadata(&output_path).ok()?.len() as usize;
+        Some((size, duration))
+    } else {
+        None
+    }
+}
+
+/// Write PPM file for mozjpeg input
+fn write_ppm(path: &Path, pixels: &[u8], width: u32, height: u32) -> std::io::Result<()> {
+    let mut file = fs::File::create(path)?;
+    writeln!(file, "P6\n{width} {height}\n255")?;
+    file.write_all(pixels)?;
+    Ok(())
+}
+
+/// Encode JPEG with mozjpeg and return (size, duration)
+fn encode_with_mozjpeg(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    tmp_dir: &Path,
+) -> Option<(usize, Duration)> {
+    let cjpeg_bin = find_cjpeg()?;
+
+    let ppm_path = tmp_dir.join("mozjpeg_input.ppm");
+    let jpg_path = tmp_dir.join("mozjpeg_output.jpg");
+
+    write_ppm(&ppm_path, pixels, width, height).ok()?;
+
+    let start = Instant::now();
+    let status = Command::new(&cjpeg_bin)
+        .args([
+            "-quality",
+            "85",
+            "-optimize",
+            "-progressive",
+            "-outfile",
+            jpg_path.to_str()?,
+            ppm_path.to_str()?,
+        ])
+        .output()
+        .ok()?;
+    let duration = start.elapsed();
+
+    if status.status.success() {
+        let size = fs::metadata(&jpg_path).ok()?.len() as usize;
+        Some((size, duration))
+    } else {
+        None
+    }
+}
+
+// ============================================================================
+// PNG Encoding Comparison (all presets)
+// ============================================================================
+
+fn bench_png_all_presets(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PNG All Presets");
 
     for size in [256, 512].iter() {
         let gradient = generate_gradient_image(*size, *size);
-        let noisy = generate_noisy_image(*size, *size);
         let pixel_bytes = (*size as u64) * (*size as u64) * 3;
 
         group.throughput(Throughput::Bytes(pixel_bytes));
 
-        // --- Gradient Image ---
         let mut png_buf = Vec::new();
+
+        // comprs Fast preset
         group.bench_with_input(
-            BenchmarkId::new("comprs_gradient", format!("{size}x{size}")),
+            BenchmarkId::new("comprs_fast", format!("{size}x{size}")),
             &gradient,
             |b, pixels| {
                 b.iter(|| {
@@ -97,32 +223,17 @@ fn bench_png_comparison(c: &mut Criterion) {
                         *size,
                         *size,
                         ColorType::Rgb,
-                        &png::PngOptions::default(),
+                        &png::PngOptions::fast(),
                     )
                     .unwrap()
                 });
             },
         );
 
+        // comprs Balanced preset
         group.bench_with_input(
-            BenchmarkId::new("image_crate_gradient", format!("{size}x{size}")),
+            BenchmarkId::new("comprs_balanced", format!("{size}x{size}")),
             &gradient,
-            |b, pixels| {
-                b.iter(|| {
-                    let mut output = Vec::new();
-                    let encoder = image::codecs::png::PngEncoder::new(&mut output);
-                    encoder
-                        .write_image(black_box(pixels), *size, *size, image::ColorType::Rgb8)
-                        .unwrap();
-                    output
-                });
-            },
-        );
-
-        // --- Noisy Image ---
-        group.bench_with_input(
-            BenchmarkId::new("comprs_noisy", format!("{size}x{size}")),
-            &noisy,
             |b, pixels| {
                 b.iter(|| {
                     png::encode_into(
@@ -131,16 +242,36 @@ fn bench_png_comparison(c: &mut Criterion) {
                         *size,
                         *size,
                         ColorType::Rgb,
-                        &png::PngOptions::default(),
+                        &png::PngOptions::balanced(),
                     )
                     .unwrap()
                 });
             },
         );
 
+        // comprs Max preset (skip in normal benchmarks - too slow)
+        // group.bench_with_input(
+        //     BenchmarkId::new("comprs_max", format!("{size}x{size}")),
+        //     &gradient,
+        //     |b, pixels| {
+        //         b.iter(|| {
+        //             png::encode_into(
+        //                 &mut png_buf,
+        //                 black_box(pixels),
+        //                 *size,
+        //                 *size,
+        //                 ColorType::Rgb,
+        //                 &png::PngOptions::max(),
+        //             )
+        //             .unwrap()
+        //         });
+        //     },
+        // );
+
+        // image crate
         group.bench_with_input(
-            BenchmarkId::new("image_crate_noisy", format!("{size}x{size}")),
-            &noisy,
+            BenchmarkId::new("image_crate", format!("{size}x{size}")),
+            &gradient,
             |b, pixels| {
                 b.iter(|| {
                     let mut output = Vec::new();
@@ -158,11 +289,11 @@ fn bench_png_comparison(c: &mut Criterion) {
 }
 
 // ============================================================================
-// JPEG Encoding Comparison
+// JPEG Encoding Comparison (all presets)
 // ============================================================================
 
-fn bench_jpeg_comparison(c: &mut Criterion) {
-    let mut group = c.benchmark_group("JPEG Comparison");
+fn bench_jpeg_all_presets(c: &mut Criterion) {
+    let mut group = c.benchmark_group("JPEG All Presets");
 
     for size in [256, 512].iter() {
         let gradient = generate_gradient_image(*size, *size);
@@ -172,9 +303,9 @@ fn bench_jpeg_comparison(c: &mut Criterion) {
 
         let mut jpeg_buf = Vec::new();
 
-        // comprs with 4:4:4 subsampling
+        // comprs Fast preset
         group.bench_with_input(
-            BenchmarkId::new("comprs_q85_444", format!("{size}x{size}")),
+            BenchmarkId::new("comprs_fast", format!("{size}x{size}")),
             &gradient,
             |b, pixels| {
                 b.iter(|| {
@@ -185,20 +316,16 @@ fn bench_jpeg_comparison(c: &mut Criterion) {
                         *size,
                         85,
                         ColorType::Rgb,
-                        &jpeg::JpegOptions {
-                            quality: 85,
-                            subsampling: jpeg::Subsampling::S444,
-                            restart_interval: None,
-                        },
+                        &jpeg::JpegOptions::fast(85),
                     )
                     .unwrap()
                 });
             },
         );
 
-        // comprs with 4:2:0 subsampling
+        // comprs Balanced preset
         group.bench_with_input(
-            BenchmarkId::new("comprs_q85_420", format!("{size}x{size}")),
+            BenchmarkId::new("comprs_balanced", format!("{size}x{size}")),
             &gradient,
             |b, pixels| {
                 b.iter(|| {
@@ -209,11 +336,27 @@ fn bench_jpeg_comparison(c: &mut Criterion) {
                         *size,
                         85,
                         ColorType::Rgb,
-                        &jpeg::JpegOptions {
-                            quality: 85,
-                            subsampling: jpeg::Subsampling::S420,
-                            restart_interval: None,
-                        },
+                        &jpeg::JpegOptions::balanced(85),
+                    )
+                    .unwrap()
+                });
+            },
+        );
+
+        // comprs Max preset
+        group.bench_with_input(
+            BenchmarkId::new("comprs_max", format!("{size}x{size}")),
+            &gradient,
+            |b, pixels| {
+                b.iter(|| {
+                    jpeg::encode_with_options_into(
+                        &mut jpeg_buf,
+                        black_box(pixels),
+                        *size,
+                        *size,
+                        85,
+                        ColorType::Rgb,
+                        &jpeg::JpegOptions::max(85),
                     )
                     .unwrap()
                 });
@@ -222,7 +365,7 @@ fn bench_jpeg_comparison(c: &mut Criterion) {
 
         // image crate
         group.bench_with_input(
-            BenchmarkId::new("image_crate_q85", format!("{size}x{size}")),
+            BenchmarkId::new("image_crate", format!("{size}x{size}")),
             &gradient,
             |b, pixels| {
                 b.iter(|| {
@@ -282,20 +425,40 @@ fn bench_deflate_comparison(c: &mut Criterion) {
 // ============================================================================
 
 fn print_summary_report() {
+    // Create temp directory for external tool tests
+    let tmp_dir = PathBuf::from("target/bench-comparison");
+    let _ = fs::create_dir_all(&tmp_dir);
+
     println!("\n");
-    println!("╔══════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                         COMPRS BENCHMARK SUMMARY                             ║");
-    println!("╚══════════════════════════════════════════════════════════════════════════════╝");
+    println!("╔══════════════════════════════════════════════════════════════════════════════════════════════════╗");
+    println!("║                              COMPRS COMPREHENSIVE BENCHMARK SUMMARY                              ║");
+    println!("╚══════════════════════════════════════════════════════════════════════════════════════════════════╝");
+    println!();
+    println!("See benches/BENCHMARKS.md for detailed analysis and recommendations.");
+    println!();
+
+    // --- External Tool Availability ---
+    let oxipng_available = find_oxipng().is_some();
+    let mozjpeg_available = find_cjpeg().is_some();
+
+    println!(
+        "External tools: oxipng={}, mozjpeg={}",
+        if oxipng_available { "found" } else { "missing" },
+        if mozjpeg_available {
+            "found"
+        } else {
+            "missing"
+        }
+    );
     println!();
 
     // --- Binary Size Comparison ---
-    println!("┌──────────────────────────────────────────────────────────────────────────────┐");
-    println!("│ WASM Binary Size Comparison                                                  │");
-    println!("├────────────────────┬─────────────┬────────────────────────────────────────────┤");
-    println!("│ Library            │ WASM Size   │ Notes                                      │");
-    println!("├────────────────────┼─────────────┼────────────────────────────────────────────┤");
+    println!("┌────────────────────────────────────────────────────────────────────────────────────────────────┐");
+    println!("│ WASM Binary Size Comparison                                                                    │");
+    println!("├────────────────────┬─────────────┬──────────────────────────────────────────────────────────────┤");
+    println!("│ Library            │ WASM Size   │ Notes                                                        │");
+    println!("├────────────────────┼─────────────┼──────────────────────────────────────────────────────────────┤");
 
-    // Try to measure actual comprs WASM size
     let comprs_wasm_size = get_wasm_size();
     let comprs_size_str = match comprs_wasm_size {
         Some(size) => format_size(size),
@@ -303,131 +466,185 @@ fn print_summary_report() {
     };
 
     println!(
-        "│ {:<18} │ {:>11} │ {:<42} │",
+        "│ {:<18} │ {:>11} │ {:<60} │",
         "comprs", comprs_size_str, "Zero deps, pure Rust"
     );
     println!(
-        "│ {:<18} │ {:>11} │ {:<42} │",
-        "image crate", "~2-4 MB", "Pure Rust, many codecs"
-    );
-    println!(
-        "│ {:<18} │ {:>11} │ {:<42} │",
-        "photon-rs", "~200-400 KB", "Pure Rust, WASM optimized"
-    );
-    println!(
-        "│ {:<18} │ {:>11} │ {:<42} │",
-        "zune-image", "~500 KB-1 MB", "Pure Rust, SIMD optimized"
-    );
-    println!(
-        "│ {:<18} │ {:>11} │ {:<42} │",
+        "│ {:<18} │ {:>11} │ {:<60} │",
         "wasm-mozjpeg", "~208 KB", "Emscripten compiled"
     );
-    println!("└────────────────────┴─────────────┴────────────────────────────────────────────┘");
+    println!(
+        "│ {:<18} │ {:>11} │ {:<60} │",
+        "squoosh oxipng", "~625 KB", "Google Squoosh codec"
+    );
+    println!(
+        "│ {:<18} │ {:>11} │ {:<60} │",
+        "squoosh mozjpeg", "~803 KB", "Google Squoosh codec"
+    );
+    println!(
+        "│ {:<18} │ {:>11} │ {:<60} │",
+        "image crate", "~6-10 MB", "Pure Rust, many codecs"
+    );
+    println!("└────────────────────┴─────────────┴──────────────────────────────────────────────────────────────┘");
     println!();
 
-    // --- Output Size Comparison ---
-    println!("┌──────────────────────────────────────────────────────────────────────────────┐");
-    println!("│ Compression Output Size (512x512 gradient image)                             │");
-    println!("├────────────────────┬─────────────┬─────────────┬──────────────────────────────┤");
-    println!("│ Format             │ comprs      │ image crate │ Ratio                        │");
-    println!("├────────────────────┼─────────────┼─────────────┼──────────────────────────────┤");
+    // --- PNG Comparison (all presets + external tools) ---
+    println!("┌────────────────────────────────────────────────────────────────────────────────────────────────┐");
+    println!("│ PNG Compression (512x512 gradient image)                                                       │");
+    println!("├────────────────────┬─────────────┬─────────────┬───────────────────────────────────────────────┤");
+    println!("│ Encoder            │ Size        │ Time        │ Notes                                         │");
+    println!("├────────────────────┼─────────────┼─────────────┼───────────────────────────────────────────────┤");
 
-    // Measure actual output sizes
     let gradient = generate_gradient_image(512, 512);
 
-    // PNG sizes
-    let mut comprs_png = Vec::new();
+    // comprs Fast
+    let (fast_size, fast_time) = measure_png_encode(&gradient, 512, 512, &png::PngOptions::fast());
+    println!(
+        "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+        "comprs Fast",
+        format_size(fast_size),
+        format_duration(fast_time),
+        "level=2, AdaptiveFast filter"
+    );
+
+    // comprs Balanced
+    let (balanced_size, balanced_time) =
+        measure_png_encode(&gradient, 512, 512, &png::PngOptions::balanced());
+    println!(
+        "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+        "comprs Balanced",
+        format_size(balanced_size),
+        format_duration(balanced_time),
+        "level=6, Adaptive filter"
+    );
+
+    // comprs Max (single iteration - too slow for multiple)
+    let max_start = Instant::now();
+    let mut max_buf = Vec::new();
     png::encode_into(
-        &mut comprs_png,
+        &mut max_buf,
         &gradient,
         512,
         512,
         ColorType::Rgb,
-        &png::PngOptions::default(),
+        &png::PngOptions::max(),
     )
     .unwrap();
-
-    let mut image_png = Vec::new();
-    let encoder = image::codecs::png::PngEncoder::new(&mut image_png);
-    encoder
-        .write_image(&gradient, 512, 512, image::ColorType::Rgb8)
-        .unwrap();
-
-    let png_ratio = comprs_png.len() as f64 / image_png.len() as f64;
+    let max_time = max_start.elapsed();
     println!(
-        "│ {:<18} │ {:>11} │ {:>11} │ {:>28.2}x │",
-        "PNG",
-        format_size(comprs_png.len()),
-        format_size(image_png.len()),
-        png_ratio
+        "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+        "comprs Max",
+        format_size(max_buf.len()),
+        format_duration(max_time),
+        "level=9, MinSum, optimal LZ77"
     );
 
-    // JPEG sizes
-    let mut comprs_jpeg = Vec::new();
-    jpeg::encode_with_options_into(
-        &mut comprs_jpeg,
-        &gradient,
-        512,
-        512,
-        85,
-        ColorType::Rgb,
-        &jpeg::JpegOptions {
-            quality: 85,
-            subsampling: jpeg::Subsampling::S444,
-            restart_interval: None,
-        },
-    )
-    .unwrap();
-
-    let mut image_jpeg = Vec::new();
-    let jpeg_encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut image_jpeg, 85);
-    jpeg_encoder
-        .write_image(&gradient, 512, 512, image::ColorType::Rgb8)
-        .unwrap();
-
-    let jpeg_ratio = comprs_jpeg.len() as f64 / image_jpeg.len() as f64;
+    // image crate
+    let (image_size, image_time) = measure_image_png_encode(&gradient, 512, 512);
     println!(
-        "│ {:<18} │ {:>11} │ {:>11} │ {:>28.2}x │",
-        "JPEG (q85, 4:4:4)",
-        format_size(comprs_jpeg.len()),
-        format_size(image_jpeg.len()),
-        jpeg_ratio
+        "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+        "image crate",
+        format_size(image_size),
+        format_duration(image_time),
+        "default PngEncoder"
     );
 
-    // JPEG 4:2:0
-    let mut comprs_jpeg_420 = Vec::new();
-    jpeg::encode_with_options_into(
-        &mut comprs_jpeg_420,
-        &gradient,
-        512,
-        512,
-        85,
-        ColorType::Rgb,
-        &jpeg::JpegOptions {
-            quality: 85,
-            subsampling: jpeg::Subsampling::S420,
-            restart_interval: None,
-        },
-    )
-    .unwrap();
+    // oxipng (if available)
+    if let Some((oxi_size, oxi_time)) = encode_with_oxipng(&gradient, 512, 512, &tmp_dir) {
+        let delta = (balanced_size as f64 / oxi_size as f64 - 1.0) * 100.0;
+        println!(
+            "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+            "oxipng",
+            format_size(oxi_size),
+            format_duration(oxi_time),
+            format!("-o4 --strip safe (Δ={:+.1}%)", delta)
+        );
+    } else {
+        println!(
+            "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+            "oxipng", "N/A", "N/A", "not installed (brew install oxipng)"
+        );
+    }
 
+    println!("└────────────────────┴─────────────┴─────────────┴───────────────────────────────────────────────┘");
+    println!();
+
+    // --- JPEG Comparison (all presets + external tools) ---
+    println!("┌────────────────────────────────────────────────────────────────────────────────────────────────┐");
+    println!("│ JPEG Compression (512x512 gradient image, quality 85)                                          │");
+    println!("├────────────────────┬─────────────┬─────────────┬───────────────────────────────────────────────┤");
+    println!("│ Encoder            │ Size        │ Time        │ Notes                                         │");
+    println!("├────────────────────┼─────────────┼─────────────┼───────────────────────────────────────────────┤");
+
+    // comprs Fast
+    let (fast_size, fast_time) =
+        measure_jpeg_encode(&gradient, 512, 512, &jpeg::JpegOptions::fast(85));
     println!(
-        "│ {:<18} │ {:>11} │ {:>11} │ {:>28} │",
-        "JPEG (q85, 4:2:0)",
-        format_size(comprs_jpeg_420.len()),
-        "N/A",
-        "-"
+        "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+        "comprs Fast",
+        format_size(fast_size),
+        format_duration(fast_time),
+        "4:4:4, baseline, no optimization"
     );
 
-    println!("└────────────────────┴─────────────┴─────────────┴──────────────────────────────┘");
+    // comprs Balanced
+    let (balanced_size, balanced_time) =
+        measure_jpeg_encode(&gradient, 512, 512, &jpeg::JpegOptions::balanced(85));
+    println!(
+        "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+        "comprs Balanced",
+        format_size(balanced_size),
+        format_duration(balanced_time),
+        "4:4:4, Huffman optimization"
+    );
+
+    // comprs Max
+    let (max_size, max_time) =
+        measure_jpeg_encode(&gradient, 512, 512, &jpeg::JpegOptions::max(85));
+    println!(
+        "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+        "comprs Max",
+        format_size(max_size),
+        format_duration(max_time),
+        "4:2:0, progressive, trellis"
+    );
+
+    // image crate
+    let (image_size, image_time) = measure_image_jpeg_encode(&gradient, 512, 512);
+    println!(
+        "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+        "image crate",
+        format_size(image_size),
+        format_duration(image_time),
+        "quality 85, default settings"
+    );
+
+    // mozjpeg (if available)
+    if let Some((moz_size, moz_time)) = encode_with_mozjpeg(&gradient, 512, 512, &tmp_dir) {
+        let delta = (max_size as f64 / moz_size as f64 - 1.0) * 100.0;
+        println!(
+            "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+            "mozjpeg",
+            format_size(moz_size),
+            format_duration(moz_time),
+            format!("-quality 85 -optimize -progressive (Δ={:+.1}%)", delta)
+        );
+    } else {
+        println!(
+            "│ {:<18} │ {:>11} │ {:>11} │ {:<45} │",
+            "mozjpeg", "N/A", "N/A", "not installed (brew install mozjpeg)"
+        );
+    }
+
+    println!("└────────────────────┴─────────────┴─────────────┴───────────────────────────────────────────────┘");
     println!();
 
     // --- DEFLATE Comparison ---
-    println!("┌──────────────────────────────────────────────────────────────────────────────┐");
-    println!("│ DEFLATE Compression (1 MB payload)                                           │");
-    println!("├────────────────────┬─────────────┬─────────────┬──────────────────────────────┤");
-    println!("│ Library            │ Output Size │ Ratio       │ Notes                        │");
-    println!("├────────────────────┼─────────────┼─────────────┼──────────────────────────────┤");
+    println!("┌────────────────────────────────────────────────────────────────────────────────────────────────┐");
+    println!("│ DEFLATE Compression (1 MB payload)                                                             │");
+    println!("├────────────────────┬─────────────┬─────────────┬───────────────────────────────────────────────┤");
+    println!("│ Library            │ Output Size │ Ratio       │ Notes                                         │");
+    println!("├────────────────────┼─────────────┼─────────────┼───────────────────────────────────────────────┤");
 
     let compressible = make_compressible(1 << 20);
     let comprs_deflate = deflate_zlib(&compressible, 6);
@@ -440,113 +657,144 @@ fn print_summary_report() {
     let flate2_ratio = compressible.len() as f64 / flate2_deflate.len() as f64;
 
     println!(
-        "│ {:<18} │ {:>11} │ {:>10.1}x │ {:<28} │",
+        "│ {:<18} │ {:>11} │ {:>10.1}x │ {:<45} │",
         "comprs",
         format_size(comprs_deflate.len()),
         comprs_ratio,
         "Pure Rust, zero deps"
     );
     println!(
-        "│ {:<18} │ {:>11} │ {:>10.1}x │ {:<28} │",
+        "│ {:<18} │ {:>11} │ {:>10.1}x │ {:<45} │",
         "flate2",
         format_size(flate2_deflate.len()),
         flate2_ratio,
         "miniz_oxide backend"
     );
-    println!("└────────────────────┴─────────────┴─────────────┴──────────────────────────────┘");
-    println!();
-
-    // --- Speed Summary ---
-    println!("┌──────────────────────────────────────────────────────────────────────────────┐");
-    println!("│ Speed Summary (512x512 image, avg of 10 iterations)                          │");
-    println!("├────────────────────┬─────────────┬─────────────┬──────────────────────────────┤");
-    println!("│ Operation          │ comprs      │ image crate │ Relative                     │");
-    println!("├────────────────────┼─────────────┼─────────────┼──────────────────────────────┤");
-
-    // PNG encoding speed
-    let png_comprs_time = measure_time(|| {
-        let mut buf = Vec::new();
-        png::encode_into(
-            &mut buf,
-            &gradient,
-            512,
-            512,
-            ColorType::Rgb,
-            &png::PngOptions::default(),
-        )
-        .unwrap();
-    });
-
-    let png_image_time = measure_time(|| {
-        let mut output = Vec::new();
-        let encoder = image::codecs::png::PngEncoder::new(&mut output);
-        encoder
-            .write_image(&gradient, 512, 512, image::ColorType::Rgb8)
-            .unwrap();
-    });
-
-    let png_relative = format_relative_speed(png_comprs_time, png_image_time);
-    println!(
-        "│ {:<18} │ {:>11} │ {:>11} │ {:>28} │",
-        "PNG encode",
-        format_duration(png_comprs_time),
-        format_duration(png_image_time),
-        png_relative
-    );
-
-    // JPEG encoding speed
-    let jpeg_comprs_time = measure_time(|| {
-        let mut buf = Vec::new();
-        jpeg::encode_with_options_into(
-            &mut buf,
-            &gradient,
-            512,
-            512,
-            85,
-            ColorType::Rgb,
-            &jpeg::JpegOptions {
-                quality: 85,
-                subsampling: jpeg::Subsampling::S444,
-                restart_interval: None,
-            },
-        )
-        .unwrap();
-    });
-
-    let jpeg_image_time = measure_time(|| {
-        let mut output = Vec::new();
-        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
-        encoder
-            .write_image(&gradient, 512, 512, image::ColorType::Rgb8)
-            .unwrap();
-    });
-
-    let jpeg_relative = format_relative_speed(jpeg_comprs_time, jpeg_image_time);
-    println!(
-        "│ {:<18} │ {:>11} │ {:>11} │ {:>28} │",
-        "JPEG encode",
-        format_duration(jpeg_comprs_time),
-        format_duration(jpeg_image_time),
-        jpeg_relative
-    );
-
-    println!("└────────────────────┴─────────────┴─────────────┴──────────────────────────────┘");
+    println!("└────────────────────┴─────────────┴─────────────┴───────────────────────────────────────────────┘");
     println!();
 
     // --- Summary Notes ---
     println!("Notes:");
     println!("  • WASM sizes are approximate and depend on build configuration");
-    println!("  • Speed measurements are single-iteration warm estimates (see Criterion for statistical analysis)");
-    println!("  • Compression ratios vary significantly based on image content");
-    println!("  • Run `cargo bench --bench comparison` for detailed statistical benchmarks");
+    println!("  • Speed measurements are averaged over 10 iterations (except Max preset)");
+    println!("  • For detailed benchmarks see: cargo bench --bench comparison");
+    println!("  • For full documentation see: benches/BENCHMARKS.md");
     println!();
 }
 
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+fn measure_png_encode(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    opts: &png::PngOptions,
+) -> (usize, Duration) {
+    let mut buf = Vec::new();
+
+    // Warm up
+    for _ in 0..3 {
+        png::encode_into(&mut buf, pixels, width, height, ColorType::Rgb, opts).unwrap();
+    }
+
+    // Measure
+    let start = Instant::now();
+    let iterations = 10;
+    for _ in 0..iterations {
+        png::encode_into(&mut buf, pixels, width, height, ColorType::Rgb, opts).unwrap();
+    }
+    let duration = start.elapsed() / iterations;
+
+    (buf.len(), duration)
+}
+
+fn measure_jpeg_encode(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    opts: &jpeg::JpegOptions,
+) -> (usize, Duration) {
+    let mut buf = Vec::new();
+
+    // Warm up
+    for _ in 0..3 {
+        jpeg::encode_with_options_into(&mut buf, pixels, width, height, 85, ColorType::Rgb, opts)
+            .unwrap();
+    }
+
+    // Measure
+    let start = Instant::now();
+    let iterations = 10;
+    for _ in 0..iterations {
+        jpeg::encode_with_options_into(&mut buf, pixels, width, height, 85, ColorType::Rgb, opts)
+            .unwrap();
+    }
+    let duration = start.elapsed() / iterations;
+
+    (buf.len(), duration)
+}
+
+fn measure_image_png_encode(pixels: &[u8], width: u32, height: u32) -> (usize, Duration) {
+    // Warm up
+    for _ in 0..3 {
+        let mut output = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut output);
+        encoder
+            .write_image(pixels, width, height, image::ColorType::Rgb8)
+            .unwrap();
+    }
+
+    // Measure
+    let start = Instant::now();
+    let iterations = 10;
+    let mut last_output = Vec::new();
+    for _ in 0..iterations {
+        let mut output = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut output);
+        encoder
+            .write_image(pixels, width, height, image::ColorType::Rgb8)
+            .unwrap();
+        last_output = output;
+    }
+    let duration = start.elapsed() / iterations;
+
+    (last_output.len(), duration)
+}
+
+fn measure_image_jpeg_encode(pixels: &[u8], width: u32, height: u32) -> (usize, Duration) {
+    // Warm up
+    for _ in 0..3 {
+        let mut output = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
+        encoder
+            .write_image(pixels, width, height, image::ColorType::Rgb8)
+            .unwrap();
+    }
+
+    // Measure
+    let start = Instant::now();
+    let iterations = 10;
+    let mut last_output = Vec::new();
+    for _ in 0..iterations {
+        let mut output = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
+        encoder
+            .write_image(pixels, width, height, image::ColorType::Rgb8)
+            .unwrap();
+        last_output = output;
+    }
+    let duration = start.elapsed() / iterations;
+
+    (last_output.len(), duration)
+}
+
 fn get_wasm_size() -> Option<usize> {
-    // Try to find the WASM binary if it exists
     let paths = [
         "target/wasm32-unknown-unknown/release/comprs.wasm",
         "target/wasm32-unknown-unknown/release/comprs_bg.wasm",
+        "my-app/src/lib/comprs-wasm/comprs_bg.wasm",
     ];
 
     for path in paths {
@@ -554,8 +802,6 @@ fn get_wasm_size() -> Option<usize> {
             return Some(metadata.len() as usize);
         }
     }
-
-    // Try running wasm-pack build to get the size (if available)
     None
 }
 
@@ -581,35 +827,6 @@ fn format_duration(duration: Duration) -> String {
     }
 }
 
-fn format_relative_speed(comprs_time: Duration, other_time: Duration) -> String {
-    let ratio = comprs_time.as_secs_f64() / other_time.as_secs_f64();
-    if ratio < 1.0 {
-        // comprs is faster
-        let faster = 1.0 / ratio;
-        format!("comprs {faster:.1}x faster")
-    } else if ratio > 1.0 {
-        // other is faster
-        format!("image {ratio:.1}x faster")
-    } else {
-        "equal".to_string()
-    }
-}
-
-fn measure_time<F: FnMut()>(mut f: F) -> Duration {
-    // Warm up
-    for _ in 0..3 {
-        f();
-    }
-
-    // Measure average of 10 iterations
-    let start = Instant::now();
-    let iterations = 10;
-    for _ in 0..iterations {
-        f();
-    }
-    start.elapsed() / iterations
-}
-
 // ============================================================================
 // Custom Criterion Configuration
 // ============================================================================
@@ -623,12 +840,11 @@ fn custom_criterion() -> Criterion {
 criterion_group! {
     name = benches;
     config = custom_criterion();
-    targets = bench_png_comparison, bench_jpeg_comparison, bench_deflate_comparison
+    targets = bench_png_all_presets, bench_jpeg_all_presets, bench_deflate_comparison
 }
 
 // Custom main that prints summary after benchmarks
 fn main() {
-    // Check if we should just print summary
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--summary-only") {
         print_summary_report();

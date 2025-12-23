@@ -434,6 +434,234 @@ impl AdaptiveScratch {
 
 We allocate once and reuse. The vectors keep their capacity between rows, avoiding repeated allocation.
 
+## Transform Before Processing
+
+Sometimes the best optimization isn't in the algorithm—it's in reshaping the data before the algorithm runs.
+
+### The Pattern
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Input Data          Transform           Optimized Data         │
+│  ──────────    →    ───────────    →    ──────────────          │
+│  [scattered]        [reorder for        [spatially              │
+│                      locality]           coherent]              │
+│                                                                 │
+│  The same algorithm runs faster on well-structured data.        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Example: Palette Reordering (Zeng Algorithm)
+
+PNG palette images assign an index (0-255) to each pixel. The naive approach assigns indices in first-occurrence order. But compression works better when similar values are adjacent.
+
+```
+Before: Pixel sequence uses scattered indices
+┌─────────────────────────────────────────┐
+│  3  7  3  12  7  3  45  12  7  3  ...  │  Indices jump around
+└─────────────────────────────────────────┘
+
+After: Reorder palette so spatially adjacent pixels have adjacent indices
+┌─────────────────────────────────────────┐
+│  1  2  1  3   2  1  4   3   2  1  ...  │  Smooth transitions
+└─────────────────────────────────────────┘
+```
+
+The Zeng algorithm builds a **co-occurrence matrix** counting which colors appear next to each other, then reorders the palette to minimize index differences between neighbors.
+
+**Result**: 20-40% smaller files for palette images, with zero change to the compression algorithm itself.
+
+### Example: Progressive JPEG Scan Order
+
+Instead of encoding each 8×8 block completely before moving to the next, progressive JPEG groups coefficients by frequency:
+
+```
+Sequential: Block₁[all 64 coeffs] → Block₂[all 64] → Block₃[all 64] → ...
+
+Progressive: All DC coeffs → All low AC → All high AC
+             (similar data grouped together = better compression)
+```
+
+Same data, different order — 5-15% smaller files.
+
+### When to Apply This Pattern
+
+Ask: "Are there relationships in my data that the algorithm can't see?"
+
+- **Spatial locality**: Adjacent pixels often have similar values
+- **Frequency correlation**: Similar-frequency DCT coefficients have similar distributions
+- **Temporal patterns**: Sequential data often has predictable deltas
+
+Transform the data to expose these patterns before compression.
+
+---
+
+## Structure the Search Space
+
+When facing a combinatorial decision problem, don't enumerate all possibilities. Model it as a graph and find the shortest path.
+
+### The Problem: Exponential Choices
+
+Many optimization problems seem to require trying every combination:
+
+```
+Quantization example:
+─────────────────────
+64 coefficients, each could round up or down
+Brute force: 2^64 possibilities = 18 quintillion combinations
+
+LZ77 parsing example:
+─────────────────────
+At each position: literal OR match of length 3, 4, 5, ... 258
+10,000 byte file = astronomical combinations
+```
+
+### The Solution: Model as a Graph
+
+Instead of brute force, observe that:
+1. **Decisions are sequential** — you make choices one position at a time
+2. **Future costs don't depend on how you got here** — only on your current state
+3. **You can compute optimal paths efficiently** — using DP or shortest-path algorithms
+
+```
+Trellis Quantization Graph
+══════════════════════════
+
+Position 0        Position 1        Position 2
+   [4]───────────────[2]───────────────[0]
+    │╲               │╲               │
+    │ ╲cost          │ ╲              │
+   [5]──╲───────────[3]──╲───────────[1]
+          ╲               ╲              
+          [6]─────────────[4]─────────────[2]
+
+Each node = a possible quantized value
+Each edge = cost (rate + λ × distortion) to transition
+Solution  = shortest path from start to end
+```
+
+**Key insight**: You only need to track the *best way to reach each state*, not all possible paths. This reduces 2^N to O(N × S²) where S is states per position.
+
+### Example: Optimal LZ77 Parsing
+
+Greedy LZ77 takes the longest match at each position. But sometimes a shorter match enables a better match later:
+
+```
+Data: "ABCABCABCD"
+
+Greedy:     ABC (match 3) + ABCD (match 4) = suboptimal
+Optimal:    ABCABC (match 6) + D (literal) = better
+
+The greedy choice at position 3 blocks a longer match at position 0.
+```
+
+The optimal approach:
+1. Build a graph: each position has edges for "literal" and all valid match lengths
+2. Edge costs = actual bit cost (from Huffman statistics)
+3. Find shortest path with forward DP
+
+```rust
+// Forward DP: cost[i] = minimum bits to encode bytes 0..i
+for i in 0..n {
+    // Try literal
+    let lit_cost = cost[i] + literal_bits(data[i]);
+    if lit_cost < cost[i + 1] {
+        cost[i + 1] = lit_cost;
+    }
+    
+    // Try each match length
+    for (len, dist) in find_matches(data, i) {
+        let match_cost = cost[i] + match_bits(len, dist);
+        if match_cost < cost[i + len] {
+            cost[i + len] = match_cost;
+        }
+    }
+}
+```
+
+**Result**: 3-8% smaller files by finding globally optimal parse instead of locally greedy.
+
+### When to Apply This Pattern
+
+Ask: "Am I making sequential decisions where each choice affects future options?"
+
+If yes, model it as a graph:
+- **Nodes** = states (what information do I need to make the next decision?)
+- **Edges** = choices with costs
+- **Solution** = shortest path (Viterbi, Dijkstra, or forward DP)
+
+The key properties that make this work:
+- **Optimal substructure**: Best solution contains best sub-solutions
+- **Limited state space**: You don't need to track everything—just enough to evaluate future costs
+
+---
+
+## Multi-Pass Processing
+
+Sometimes you need information about the whole input to make optimal decisions. The solution: analyze first, then process.
+
+### The Trade-off
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Single-Pass vs Multi-Pass                     │
+│                                                                  │
+│  Single-pass:  Faster, streaming-friendly, but uses estimates   │
+│  Multi-pass:   Slower, requires buffering, but optimal choices  │
+│                                                                  │
+│  When encoding time matters less than output quality,           │
+│  multi-pass wins.                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Example: Optimized Huffman Tables
+
+DEFLATE can use fixed Huffman codes (single-pass) or build optimal codes for the specific data (two-pass):
+
+```
+Pass 1: Count symbol frequencies
+        literals: {0: 5, 1: 12, 2: 8, ...}
+        distances: {1: 20, 2: 15, ...}
+
+Pass 2: Build optimal Huffman tree from frequencies
+        Encode with custom codes
+```
+
+**Result**: 2-5% smaller files. The table overhead is ~300 bits; savings are usually much larger.
+
+### Example: Iterative Refinement
+
+Some problems have circular dependencies—you need to solve A to solve B, but B affects A:
+
+```
+LZ77 + Huffman Chicken-and-Egg:
+──────────────────────────────
+Best LZ77 parse depends on Huffman bit costs
+Huffman bit costs depend on LZ77 symbol frequencies
+Which do you compute first?
+```
+
+The solution: iterate until convergence.
+
+```
+Iteration 1: Greedy LZ77 → rough frequencies → initial Huffman costs
+Iteration 2: Optimal LZ77 with costs → better frequencies → refined costs
+Iteration 3: Optimal LZ77 with refined costs → even better frequencies
+...
+Iteration N: Converged to (near-)optimal solution
+```
+
+Zopfli uses 15 iterations by default. Each iteration improves by smaller amounts until the solution stabilizes.
+
+### When to Apply This Pattern
+
+Multi-pass is worth it when:
+- **Output size matters more than encoding speed** (storage, bandwidth)
+- **The input fits in memory** (can buffer for second pass)
+- **Decisions early in the stream affect optimal choices later**
+
+---
+
 ## Algorithm Selection: The AAN Fast DCT
 
 Sometimes the biggest wins come from choosing a better algorithm entirely.
@@ -575,38 +803,55 @@ When optimizing, consider these techniques in order of impact:
    - AAN DCT instead of naive DCT
    - Hash tables instead of linear search
 
-2. **Use appropriate data structures**
+2. **Transform data before processing**
+   - Reorder for spatial locality (palette sorting)
+   - Group similar data together (progressive encoding)
+
+3. **Structure the search space**
+   - Model decisions as a graph
+   - Use DP/Viterbi instead of brute-force enumeration
+   - Find optimal paths, not all paths
+
+4. **Consider multi-pass when output quality matters**
+   - Analyze first, then optimize (optimized Huffman)
+   - Iterate when there are circular dependencies
+
+5. **Use appropriate data structures**
    - Lookup tables for repeated computations
    - Power-of-2 sizes for fast modulo
 
-3. **Reduce work**
+6. **Reduce work**
    - Defer expensive operations (batch modulo)
    - Early exit when possible
    - Skip unnecessary work (good match threshold)
 
-4. **Use efficient numeric representations**
+7. **Use efficient numeric representations**
    - Integer arithmetic instead of floating-point
    - Smaller types when range permits
    - Fixed-point for fractional values
 
-5. **Batch operations**
+8. **Batch operations**
    - Process 8 bytes at once with u64
    - Process 16 bytes at once with SIMD
    - Write multiple bits at once
 
-6. **Cache results**
+9. **Cache results**
    - Precompute lookup tables
    - Lazy-initialize constants
    - Reuse scratch buffers
 
-7. **Parallelize**
-   - Use rayon for row-level parallelism
-   - Runtime feature detection for SIMD
+10. **Parallelize**
+    - Use rayon for row-level parallelism
+    - Runtime feature detection for SIMD
 
 ## Next Steps
 
 These optimization patterns are applied throughout comprs. To see them in action:
 
+- **Data transformation**: `src/png/mod.rs` (Zeng palette sorting)
+- **Graph-based optimization**: `src/jpeg/trellis.rs` (trellis quantization)
+- **Optimal parsing**: `src/compress/lz77.rs` (forward DP for LZ77)
+- **Multi-pass processing**: `src/compress/deflate.rs` (iterative refinement)
 - **Lookup tables**: `src/compress/deflate.rs` (LENGTH_LOOKUP, DISTANCE_LOOKUP_SMALL)
 - **Fixed-point arithmetic**: `src/color.rs` (rgb_to_ycbcr)
 - **SIMD implementations**: `src/simd/x86_64.rs`

@@ -151,10 +151,16 @@ comprs input.png -o output.jpg -v
 | `-o, --output`      | Output file path                                                 | `<input>.compressed.<ext>` |
 | `-f, --format`      | Output format (`png`, `jpeg`, `jpg`)                             | Detected from extension    |
 | `-q, --quality`     | JPEG quality (1-100)                                             | 85                         |
+| `--jpeg-optimize-huffman` | Optimize JPEG Huffman tables per image (smaller files, slower) | false                      |
+| `--jpeg-restart-interval` | JPEG restart interval (MCUs, >0 enables DRI)                | 0 (disabled)               |
 | `-c, --compression` | PNG compression level (1-9)                                      | 6                          |
 | `--subsampling`     | JPEG chroma subsampling (`s444`, `s420`)                         | s444                       |
-| `--filter`          | PNG filter (`none`, `sub`, `up`, `average`, `paeth`, `adaptive`, `adaptive-fast`, `adaptive-sampled`) | adaptive                   |
+| `--filter`          | PNG filter (`none`, `sub`, `up`, `average`, `paeth`, `minsum`, `entropy`, `bigrams`, `bigent`, `brute`, `adaptive`, `adaptive-fast`, `adaptive-sampled`) | adaptive                   |
+| `--png-preset`      | PNG preset (`fast`, `balanced`, `max`, `level0`..`level6`) | fast                      |
 | `--adaptive-sample-interval` | Rows between full adaptive evaluations when using `adaptive-sampled` | 4 |
+| `--png-optimize-alpha` | Zero color channels for fully transparent pixels (PNG)        | false                      |
+| `--png-reduce-color`   | Losslessly reduce color type when possible (PNG)              | false                      |
+| `--png-strip-metadata` | Strip ancillary text/time metadata chunks (PNG)               | false                      |
 | `--grayscale`       | Convert to grayscale                                             | false                      |
 | `-v, --verbose`     | Show detailed output                                             | false                      |
 
@@ -248,6 +254,20 @@ Run a specific bench:
 cargo bench --bench encode_benchmark
 cargo bench --bench deflate_micro
 ```
+
+### Comprehensive comparison
+
+Compare `comprs` against oxipng, mozjpeg, and other tools:
+
+```bash
+# Run comprehensive comparison with summary table
+cargo bench --bench comparison -- --summary-only
+
+# Full benchmark with Criterion statistics
+cargo bench --bench comparison
+```
+
+For detailed benchmark results and library comparisons, see [benches/BENCHMARKS.md](benches/BENCHMARKS.md).
 
 ## Testing
 

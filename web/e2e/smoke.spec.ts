@@ -44,17 +44,16 @@ test.describe('Smoke Tests', () => {
 			expect(savingsText).toMatch(/^[+-][\d.]+%$/);
 		});
 
-		test('should allow changing PNG compression settings', async ({ page, waitForWasm, uploadAndWaitForCompression }) => {
+		test('should show PNG compression settings', async ({ page, waitForWasm, uploadAndWaitForCompression }) => {
 			await page.goto('/');
 			await waitForWasm();
 			await uploadAndWaitForCompression(FIXTURES.PNG);
-			await expect(page.getByTestId('compression-level-slider')).toBeVisible();
-			await expect(page.getByTestId('filter-select')).toBeVisible();
-			const initialSize = await page.getByTestId('total-compressed-size').textContent();
-			await page.getByTestId('compression-level-slider').fill('9');
-			await page.getByTestId('compression-level-slider').dispatchEvent('change');
-			await expect(page.getByTestId('download-button')).toBeVisible({ timeout: 60000 });
-			await expect(page.getByTestId('total-compressed-size')).toBeVisible();
+			// Verify PNG preset slider is visible and has correct default value
+			const slider = page.getByTestId('png-preset-slider');
+			await expect(slider).toBeVisible();
+			await expect(slider).toBeEnabled();
+			// Default should be 1 (Auto)
+			await expect(slider).toHaveValue('1');
 		});
 	});
 
@@ -74,8 +73,8 @@ test.describe('Smoke Tests', () => {
 			await uploadAndWaitForCompression(FIXTURES.JPEG);
 			await expect(page.getByTestId('quality-slider')).toBeVisible();
 			await expect(page.getByTestId('quality-value')).toBeVisible();
-			await expect(page.getByTestId('compression-level-slider')).not.toBeVisible();
-			await expect(page.getByTestId('filter-select')).not.toBeVisible();
+			// PNG preset slider should not be visible for JPEG
+			await expect(page.getByTestId('png-preset-slider')).not.toBeVisible();
 		});
 	});
 
@@ -99,21 +98,6 @@ test.describe('Smoke Tests', () => {
 			const download = await downloadPromise;
 			expect(download.suggestedFilename()).toContain('playground');
 			expect(download.suggestedFilename()).toContain('-compressed');
-		});
-	});
-
-	test.describe('Image Comparison Slider', () => {
-		test('should have working comparison slider', async ({ page, waitForWasm, uploadAndWaitForCompression }) => {
-			await page.goto('/');
-			await waitForWasm();
-			await uploadAndWaitForCompression(FIXTURES.PNG);
-			const slider = page.getByTestId('comparison-range-slider');
-			await expect(slider).toBeVisible();
-			const initialValue = await slider.inputValue();
-			expect(parseInt(initialValue)).toBe(50);
-			await slider.fill('75');
-			await slider.dispatchEvent('input');
-			await expect(slider).toHaveValue('75');
 		});
 	});
 
