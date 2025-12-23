@@ -273,10 +273,12 @@ fn run_png_section(
         if status.success() {
             let oxi_dur = t1.elapsed();
             let size = fs::metadata(&oxi_out)?.len();
+            let delta = pct_delta(size, comprs_buf.len() as u64);
             println!(
-                "PNG oxipng (-o4 --strip safe): {:>8} bytes, {:>6.2} ms",
+                "PNG oxipng (-o4 --strip safe): {:>8} bytes, {:>6.2} ms ({:+.2}%)",
                 size,
-                to_millis(oxi_dur)
+                to_millis(oxi_dur),
+                delta
             );
         } else {
             println!("PNG oxipng: failed with status {status:?}");
@@ -352,10 +354,12 @@ fn run_jpeg_section(
         if status.success() {
             let mjpeg_dur = t1.elapsed();
             let size = fs::metadata(&mjpeg_out)?.len();
+            let delta = pct_delta(size, comprs_buf.len() as u64);
             println!(
-                "JPG mozjpeg (cjpeg -quality 85 -optimize -progressive): {:>8} bytes, {:>6.2} ms",
+                "JPG mozjpeg (cjpeg -quality 85 -optimize -progressive): {:>8} bytes, {:>6.2} ms ({:+.2}%)",
                 size,
-                to_millis(mjpeg_dur)
+                to_millis(mjpeg_dur),
+                delta
             );
         } else {
             println!("JPG mozjpeg: failed with status {status:?}");
@@ -383,5 +387,13 @@ fn availability(path: &str) -> &'static str {
         "found"
     } else {
         "missing"
+    }
+}
+
+fn pct_delta(other: u64, baseline: u64) -> f64 {
+    if baseline == 0 {
+        0.0
+    } else {
+        (other as f64 / baseline as f64 - 1.0) * 100.0
     }
 }
