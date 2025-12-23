@@ -548,15 +548,12 @@
         <button
           class="btn-primary"
           onclick={triggerFilePicker}
-          data-testid="select-files-button">Select Files</button
+          data-testid="select-files-button"
+          >Select Files <kbd
+            class="ml-1 inline-flex items-center rounded bg-black/10 px-1.5 py-0.5 text-xs font-normal"
+            ><span class="text-sm leading-none mr-0.5">⌘</span>O</kbd
+          ></button
         >
-        <p class="text-xs text-neutral-600">
-          <kbd
-            class="inline-flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-neutral-400"
-          >
-            <span>⌘</span><span>O</span>
-          </kbd>
-        </p>
       </div>
     </div>
   </div>
@@ -787,8 +784,7 @@
 
 {#snippet controlsFooter()}
   <footer
-    class="flex min-h-14 flex-col gap-2 border-t border-border bg-surface-1 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-0"
-    style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom));"
+    class="flex min-h-14 flex-col gap-2 border-t border-border bg-surface-1 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-0 sm:pb-0"
     data-testid="controls-footer"
     data-wasm-ready={wasmReady}
   >
@@ -919,7 +915,7 @@
 </svelte:head>
 
 <div
-  class="flex h-screen max-w-full flex-col overflow-x-hidden bg-surface-0"
+  class="flex h-svh max-w-full flex-col overflow-hidden bg-surface-0"
   data-testid="app-container"
 >
   <main

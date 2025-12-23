@@ -32,7 +32,7 @@ html, body {
 }
 
 body {
-	@apply bg-surface-0 text-neutral-200 min-h-screen antialiased font-mono;
+	@apply bg-surface-0 text-neutral-200 min-h-svh antialiased font-mono;
 }
 
 .btn-primary {
@@ -46,7 +46,7 @@ body {
 }
 
 .input {
-	@apply bg-surface-1 border border-border text-neutral-200 rounded px-2 py-1 text-sm;
+	@apply bg-surface-1 border border-border text-neutral-200 rounded px-2 py-1 text-xs;
 	@apply focus:outline-none focus:border-neutral-500;
 }
 
