@@ -382,6 +382,8 @@ fn encode_scan(
                           mcu_count: u32,
                           rst_idx: &mut u8| {
         if let Some(interval) = restart_interval {
+            // The modulo check is intentional; is_multiple_of is unstable
+            #[allow(unknown_lints, clippy::manual_is_multiple_of)]
             if interval > 0 && mcu_count % interval as u32 == 0 {
                 writer.flush();
                 writer.write_bytes(&[0xFF, 0xD0 + (*rst_idx & 0x07)]);
