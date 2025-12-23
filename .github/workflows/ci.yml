@@ -158,15 +158,20 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       - name: Run E2E tests
-        run: |
-          pnpm preview &
-          sleep 3
-          pnpm e2e
+        run: pnpm e2e
 
-      - name: Upload E2E screenshot
+      - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-screenshot
-          path: web/playwright-screenshot.png
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: web/test-results/
           retention-days: 7

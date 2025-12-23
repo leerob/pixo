@@ -451,6 +451,7 @@
 	<div
 		class="flex h-full w-full flex-col items-center justify-center p-4 transition-colors"
 		class:bg-surface-1={dropActive}
+		data-testid="drop-zone"
 	>
 		<div
 			class="flex h-full w-full flex-col items-center justify-center rounded border-2 border-dashed transition-colors"
@@ -465,7 +466,7 @@
 					<p class="text-lg text-neutral-300">Drop PNG or JPEG files here</p>
 					<p class="text-sm text-neutral-600">or</p>
 				</div>
-				<button class="btn-primary" onclick={triggerFilePicker}>Select Files</button>
+				<button class="btn-primary" onclick={triggerFilePicker} data-testid="select-files-button">Select Files</button>
 				<p class="text-xs text-neutral-600">
 					<kbd class="inline-flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-neutral-400">
 						<span>⌘</span><span>O</span>
@@ -477,9 +478,9 @@
 {/snippet}
 
 {#snippet singleView(job: Job)}
-	<div class="relative h-full w-full bg-surface-0">
+	<div class="relative h-full w-full bg-surface-0" data-testid="single-view">
 		{#if hasMultipleJobs}
-			<button class="absolute left-4 top-4 z-10 btn-ghost flex items-center gap-1" onclick={goBackToList}>
+			<button class="absolute left-4 top-4 z-10 btn-ghost flex items-center gap-1" onclick={goBackToList} data-testid="back-button">
 				{@render iconBack()}
 				Back
 			</button>
@@ -496,6 +497,7 @@
 				}
 			}}
 			title={hasMultipleJobs ? "Close" : "Remove"}
+			data-testid="close-button"
 		>
 			{@render iconClose()}
 		</button>
@@ -507,28 +509,32 @@
 				class:cursor-ew-resize={job.result}
 				bind:this={imageContainerRef}
 				onmousedown={handleMouseDown}
+				data-testid="image-comparison-container"
 			>
 				<img
 					src={job.originalUrl}
 					alt="Original"
 					class="max-h-[calc(100vh-180px)] max-w-full object-contain select-none"
 					draggable="false"
+					data-testid="original-image"
 				/>
 
 				{#if job.result}
 					<div
 						class="absolute inset-0 overflow-hidden"
 						style="clip-path: inset(0 {100 - job.slider}% 0 0);"
+						data-testid="compressed-image-overlay"
 					>
 						<img
 							src={job.result.url}
 							alt="Compressed"
 							class="max-h-[calc(100vh-180px)] max-w-full object-contain select-none"
 							draggable="false"
+							data-testid="compressed-image"
 						/>
 					</div>
 
-					<div class="absolute inset-y-0 cursor-ew-resize" style="left: {job.slider}%;">
+					<div class="absolute inset-y-0 cursor-ew-resize" style="left: {job.slider}%;" data-testid="comparison-slider">
 						<div class="h-full w-px bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)]"></div>
 						<div class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-white px-2 py-0.5 text-[10px] font-medium text-black shadow-md">
 							{job.slider}%
@@ -539,7 +545,7 @@
 		</div>
 
 		{#if job.result}
-			<div class="absolute bottom-20 left-1/2 w-64 -translate-x-1/2">
+			<div class="absolute bottom-20 left-1/2 w-64 -translate-x-1/2" data-testid="slider-container">
 				<input
 					type="range"
 					min="0"
@@ -548,13 +554,14 @@
 					value={job.slider}
 					oninput={(e) => updateSlider(job.id, Number((e.target as HTMLInputElement).value))}
 					class="w-full"
+					data-testid="comparison-range-slider"
 				/>
 			</div>
 		{/if}
 
-		<div class="absolute left-4 bottom-4 text-xs text-neutral-500">
-			<p>{job.name}</p>
-			<p>{job.width} × {job.height}</p>
+		<div class="absolute left-4 bottom-4 text-xs text-neutral-500" data-testid="image-info">
+			<p data-testid="image-name">{job.name}</p>
+			<p data-testid="image-dimensions">{job.width} × {job.height}</p>
 		</div>
 	</div>
 {/snippet}
@@ -565,34 +572,37 @@
 	<div
 		class="group flex w-full cursor-pointer items-center gap-4 rounded bg-surface-1 p-3 text-left transition-colors hover:bg-surface-2"
 		onclick={() => selectJob(job.id)}
+		data-testid="job-row"
+		data-job-status={job.status}
+		data-job-name={job.name}
 	>
-		<div class="h-10 w-10 flex-shrink-0 overflow-hidden rounded bg-surface-2">
+		<div class="h-10 w-10 flex-shrink-0 overflow-hidden rounded bg-surface-2" data-testid="job-thumbnail">
 			{#if job.thumbnailUrl}
 				<img src={job.thumbnailUrl} alt="" class="h-full w-full object-cover" />
 			{/if}
 		</div>
 
 		<div class="min-w-0 flex-1">
-			<p class="truncate text-sm text-neutral-200">{job.name}</p>
-			<p class="text-xs text-neutral-500">{job.width} × {job.height}</p>
+			<p class="truncate text-sm text-neutral-200" data-testid="job-name">{job.name}</p>
+			<p class="text-xs text-neutral-500" data-testid="job-dimensions">{job.width} × {job.height}</p>
 		</div>
 
 		<div class="text-right text-xs">
-			<p class="text-neutral-400">{formatBytes(job.size)}</p>
+			<p class="text-neutral-400" data-testid="job-original-size">{formatBytes(job.size)}</p>
 			{#if job.result}
-				<p class="text-neutral-500">→ {formatBytes(job.result.size)}</p>
+				<p class="text-neutral-500" data-testid="job-compressed-size">→ {formatBytes(job.result.size)}</p>
 			{:else if job.status === 'compressing'}
-				<p class="text-neutral-600">...</p>
+				<p class="text-neutral-600" data-testid="job-compressing">...</p>
 			{/if}
 		</div>
 
 		<div class="w-16 text-right">
 			{#if job.result}
-				<span class="text-sm font-medium" class:text-terminal-green={job.result.savings >= 0} class:text-terminal-red={job.result.savings < 0}>
+				<span class="text-sm font-medium" class:text-terminal-green={job.result.savings >= 0} class:text-terminal-red={job.result.savings < 0} data-testid="job-savings">
 					{formatSavings(job.result.savings)}
 				</span>
 			{:else if job.status === 'error'}
-				<span class="text-sm text-terminal-red">Error</span>
+				<span class="text-sm text-terminal-red" data-testid="job-error">Error</span>
 			{/if}
 		</div>
 
@@ -601,6 +611,7 @@
 			onclick={(e) => { e.stopPropagation(); downloadSingle(job); }}
 			disabled={!job.result}
 			aria-label="Download"
+			data-testid="job-download-button"
 		>
 			{@render iconDownload()}
 		</button>
@@ -609,6 +620,7 @@
 			class="btn-ghost text-neutral-600 opacity-0 hover:text-red-400 group-hover:opacity-100"
 			onclick={(e) => { e.stopPropagation(); removeJob(job.id); }}
 			aria-label="Remove"
+			data-testid="job-remove-button"
 		>
 			{@render iconClose()}
 		</button>
@@ -616,12 +628,12 @@
 {/snippet}
 
 {#snippet listView()}
-	<div class="h-full overflow-auto p-4">
+	<div class="h-full overflow-auto p-4" data-testid="list-view">
 		<div class="mb-4 flex items-center justify-between">
-			<h2 class="text-sm text-neutral-400">{jobs.length} files</h2>
-			<button class="btn-ghost text-xs text-neutral-500" onclick={clearAll}>Clear all</button>
+			<h2 class="text-sm text-neutral-400" data-testid="file-count">{jobs.length} files</h2>
+			<button class="btn-ghost text-xs text-neutral-500" onclick={clearAll} data-testid="clear-all-button">Clear all</button>
 		</div>
-		<div class="space-y-1">
+		<div class="space-y-1" data-testid="jobs-list">
 			{#each jobs as job (job.id)}
 				{@render jobRow(job)}
 			{/each}
@@ -630,14 +642,15 @@
 {/snippet}
 
 {#snippet controlsFooter()}
-	<footer class="flex h-14 items-center justify-between border-t border-border bg-surface-1 px-4">
-		<div class="flex items-center gap-4">
+	<footer class="flex h-14 items-center justify-between border-t border-border bg-surface-1 px-4" data-testid="controls-footer" data-wasm-ready={wasmReady}>
+		<div class="flex items-center gap-4" data-testid="format-controls">
 			<label class="flex items-center gap-2 text-xs">
 				<span class="text-neutral-500">Format</span>
 				<select
 					class="input w-20"
 					bind:value={globalOptions.format}
 					onchange={() => { formatTouched = true; recompressAll(); }}
+					data-testid="format-select"
 				>
 					<option value="png">PNG</option>
 					<option value="jpeg">JPEG</option>
@@ -647,18 +660,18 @@
 			{#if globalOptions.format === 'jpeg'}
 				<label class="flex items-center gap-2 text-xs">
 					<span class="text-neutral-500">Quality</span>
-					<input type="range" min="1" max="100" step="1" class="w-20" bind:value={globalOptions.quality} onchange={recompressAll} />
-					<span class="w-8 text-neutral-400">{globalOptions.quality}</span>
+					<input type="range" min="1" max="100" step="1" class="w-20" bind:value={globalOptions.quality} onchange={recompressAll} data-testid="quality-slider" />
+					<span class="w-8 text-neutral-400" data-testid="quality-value">{globalOptions.quality}</span>
 				</label>
 			{:else}
 				<label class="flex items-center gap-2 text-xs">
 					<span class="text-neutral-500">Level</span>
-					<input type="range" min="1" max="9" step="1" class="w-20" bind:value={globalOptions.compressionLevel} onchange={recompressAll} />
-					<span class="w-8 text-neutral-400">{globalOptions.compressionLevel}</span>
+					<input type="range" min="1" max="9" step="1" class="w-20" bind:value={globalOptions.compressionLevel} onchange={recompressAll} data-testid="compression-level-slider" />
+					<span class="w-8 text-neutral-400" data-testid="compression-level-value">{globalOptions.compressionLevel}</span>
 				</label>
 				<label class="flex items-center gap-2 text-xs">
 					<span class="text-neutral-500">Filter</span>
-					<select class="input w-28" bind:value={globalOptions.filter} onchange={recompressAll}>
+					<select class="input w-28" bind:value={globalOptions.filter} onchange={recompressAll} data-testid="filter-select">
 						{#each filterOptions as opt}
 							<option value={opt.value}>{opt.label}</option>
 						{/each}
@@ -667,30 +680,30 @@
 			{/if}
 		</div>
 
-		<div class="flex items-center gap-6 text-xs">
+		<div class="flex items-center gap-6 text-xs" data-testid="stats-section">
 			{#if completedJobs.length > 0}
 				<div class="flex items-center gap-2">
 					<span class="text-neutral-500">Original</span>
-					<span class="text-neutral-300">{formatBytes(totalOriginal)}</span>
+					<span class="text-neutral-300" data-testid="total-original-size">{formatBytes(totalOriginal)}</span>
 				</div>
 				<span class="text-neutral-600">→</span>
 				<div class="flex items-center gap-2">
 					<span class="text-neutral-500">Compressed</span>
-					<span class="text-neutral-300">{formatBytes(totalCompressed)}</span>
+					<span class="text-neutral-300" data-testid="total-compressed-size">{formatBytes(totalCompressed)}</span>
 				</div>
-				<span class="font-medium" class:text-terminal-green={totalSavingsPct >= 0} class:text-terminal-red={totalSavingsPct < 0}>
+				<span class="font-medium" class:text-terminal-green={totalSavingsPct >= 0} class:text-terminal-red={totalSavingsPct < 0} data-testid="total-savings">
 					{formatSavings(totalSavingsPct)}
 				</span>
 			{:else if jobs.length > 0}
-				<span class="text-neutral-500">Compressing...</span>
+				<span class="text-neutral-500" data-testid="compressing-status">Compressing...</span>
 			{/if}
 		</div>
 
-		<div class="flex items-center gap-2">
+		<div class="flex items-center gap-2" data-testid="download-section">
 			{#if !wasmReady}
-				<span class="text-xs text-neutral-500">Loading WASM...</span>
+				<span class="text-xs text-neutral-500" data-testid="wasm-loading">Loading WASM...</span>
 			{:else if completedJobs.length > 0}
-				<button class="btn-primary" onclick={downloadAllAsZip}>
+				<button class="btn-primary" onclick={downloadAllAsZip} data-testid="download-button">
 					{completedJobs.length > 1 ? 'Download All (.zip)' : 'Download'}
 				</button>
 			{/if}
@@ -703,8 +716,8 @@
 	<meta name="description" content="Client-side PNG/JPEG compression powered by Rust WASM." />
 </svelte:head>
 
-<div class="flex h-screen flex-col bg-surface-0">
-	<main class="flex-1 overflow-hidden" ondrop={onDrop} ondragover={onDragOver} ondragleave={onDragLeave}>
+<div class="flex h-screen flex-col bg-surface-0" data-testid="app-container">
+	<main class="flex-1 overflow-hidden" ondrop={onDrop} ondragover={onDragOver} ondragleave={onDragLeave} data-testid="main-content" data-view-mode={viewMode}>
 		{#if viewMode === 'drop'}
 			{@render dropView()}
 		{:else if viewMode === 'single' && selectedJob}
@@ -725,6 +738,7 @@
 			if (fileList) addFiles(fileList);
 			resetInput(e);
 		}}
+		data-testid="file-input"
 	/>
 
 	{@render controlsFooter()}
