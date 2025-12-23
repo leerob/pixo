@@ -21,10 +21,7 @@ pub fn read_png_header(path: &Path) -> io::Result<PngHeader> {
     file.read_exact(&mut sig)?;
     const PNG_SIG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
     if sig != PNG_SIG {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "not a PNG file",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "not a PNG file"));
     }
 
     // Read length (4) + type (4) for IHDR

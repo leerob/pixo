@@ -37,6 +37,18 @@ pub enum Error {
     },
     /// Unsupported color type for the format.
     UnsupportedColorType,
+    /// Palette has an invalid number of entries.
+    InvalidPaletteLength {
+        /// Number of palette entries provided.
+        len: usize,
+    },
+    /// Transparency data length exceeds palette length.
+    InvalidTransparencyLength {
+        /// Palette entry count.
+        palette_len: usize,
+        /// Transparency entries provided.
+        alpha_len: usize,
+    },
     /// Internal compression error.
     CompressionError(String),
 }
@@ -64,6 +76,21 @@ impl fmt::Display for Error {
             }
             Error::UnsupportedColorType => {
                 write!(f, "Unsupported color type for this format")
+            }
+            Error::InvalidPaletteLength { len } => {
+                write!(
+                    f,
+                    "Invalid palette length {len}: must be between 1 and 256 entries"
+                )
+            }
+            Error::InvalidTransparencyLength {
+                palette_len,
+                alpha_len,
+            } => {
+                write!(
+                    f,
+                    "Invalid transparency table length {alpha_len}: cannot exceed palette length {palette_len}"
+                )
             }
             Error::CompressionError(msg) => {
                 write!(f, "Compression error: {msg}")
