@@ -157,6 +157,28 @@ pub fn encode_jpeg(
     color_type: u8,
     subsampling_420: bool,
 ) -> Result<Vec<u8>, JsError> {
+    encode_jpeg_with_optimize(
+        data,
+        width,
+        height,
+        quality,
+        color_type,
+        subsampling_420,
+        false,
+    )
+}
+
+/// Encode JPEG with an explicit optimize_huffman toggle.
+#[wasm_bindgen(js_name = "encodeJpegWithOptions")]
+pub fn encode_jpeg_with_optimize(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    color_type: u8,
+    subsampling_420: bool,
+    optimize_huffman: bool,
+) -> Result<Vec<u8>, JsError> {
     let color = match color_type {
         0 => ColorType::Gray,
         2 => ColorType::Rgb,
@@ -175,7 +197,7 @@ pub fn encode_jpeg(
             Subsampling::S444
         },
         restart_interval: None,
-        optimize_huffman: false,
+        optimize_huffman,
     };
 
     jpeg::encode_with_options(data, width, height, quality, color, &options)
