@@ -434,14 +434,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         match format {
             OutputFormat::Png => (img.pixels, img.color_type),
-            OutputFormat::Jpeg | OutputFormat::Jpg => {
-                match img.color_type {
-                    ColorType::Gray => (img.pixels, ColorType::Gray),
-                    ColorType::GrayAlpha => (gray_alpha_to_gray(&img.pixels), ColorType::Gray),
-                    ColorType::Rgb => (img.pixels, ColorType::Rgb),
-                    ColorType::Rgba => (rgba_to_rgb(&img.pixels), ColorType::Rgb),
-                }
-            }
+            OutputFormat::Jpeg | OutputFormat::Jpg => match img.color_type {
+                ColorType::Gray => (img.pixels, ColorType::Gray),
+                ColorType::GrayAlpha => (gray_alpha_to_gray(&img.pixels), ColorType::Gray),
+                ColorType::Rgb => (img.pixels, ColorType::Rgb),
+                ColorType::Rgba => (rgba_to_rgb(&img.pixels), ColorType::Rgb),
+            },
         }
     };
 

@@ -18,8 +18,15 @@ const HASH_SIZE: usize = 1 << 16;
 /// LZ77 token representing either a literal or a match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
+    /// Uncompressed byte.
     Literal(u8),
-    Match { length: u16, distance: u16 },
+    /// Back-reference match (length, distance).
+    Match {
+        /// Match length (3-258).
+        length: u16,
+        /// Backward distance to the match (1-32768).
+        distance: u16,
+    },
 }
 
 /// Packed token (4 bytes) for cache-friendly encoding.
@@ -31,11 +38,13 @@ impl PackedToken {
     const LITERAL_FLAG: u32 = 0x8000_0000;
 
     #[inline]
+    /// Pack a literal byte.
     pub fn literal(byte: u8) -> Self {
         Self(Self::LITERAL_FLAG | byte as u32)
     }
 
     #[inline]
+    /// Pack a match (length, distance).
     pub fn match_(length: u16, distance: u16) -> Self {
         debug_assert!(distance >= 1, "Distance must be at least 1");
         let dist_minus_one = (distance - 1) as u32;
@@ -44,11 +53,13 @@ impl PackedToken {
     }
 
     #[inline]
+    /// Whether the token encodes a literal.
     pub fn is_literal(self) -> bool {
         (self.0 & Self::LITERAL_FLAG) != 0
     }
 
     #[inline]
+    /// Get the literal byte if present.
     pub fn as_literal(self) -> Option<u8> {
         if self.is_literal() {
             Some(self.0 as u8)
@@ -58,6 +69,7 @@ impl PackedToken {
     }
 
     #[inline]
+    /// Get the match fields if present.
     pub fn as_match(self) -> Option<(u16, u16)> {
         if self.is_literal() {
             None

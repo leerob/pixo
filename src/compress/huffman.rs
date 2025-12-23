@@ -12,7 +12,9 @@ pub const MAX_CODE_LENGTH: usize = 15;
 /// Huffman code: (code bits, length in bits).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HuffmanCode {
+    /// Canonical code bits (right-aligned).
     pub code: u16,
+    /// Bit-length of the code.
     pub length: u8,
 }
 
