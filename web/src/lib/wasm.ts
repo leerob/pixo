@@ -1,6 +1,3 @@
-import init, { bytesPerPixel, encodeJpeg, encodePngWithFilter } from '$lib/comprs-wasm/comprs.js';
-import type { InitOutput } from '$lib/comprs-wasm/comprs.js';
-
 export type EncodeFormat = 'png' | 'jpeg';
 export type PngFilter =
 	| 'adaptive'
@@ -26,11 +23,16 @@ export type CompressResult = {
 	elapsedMs: number;
 };
 
-let initialized: Promise<InitOutput> | null = null;
+// Dynamically imported WASM module (client-side only)
+let wasmModule: typeof import('$lib/comprs-wasm/comprs.js') | null = null;
+let initialized: Promise<void> | null = null;
 
 export function initWasm() {
 	if (!initialized) {
-		initialized = init();
+		initialized = import('$lib/comprs-wasm/comprs.js').then(async (mod) => {
+			await mod.default();
+			wasmModule = mod;
+		});
 	}
 	return initialized;
 }
@@ -59,6 +61,7 @@ function rgbaToRgb(data: Uint8ClampedArray) {
 
 export async function compressImage(imageData: ImageData, options: CompressOptions): Promise<CompressResult> {
 	await initWasm();
+	if (!wasmModule) throw new Error('WASM module not loaded');
 
 	const t0 = performance.now();
 	let bytes: Uint8Array;
@@ -74,16 +77,16 @@ export async function compressImage(imageData: ImageData, options: CompressOptio
 
 		if (useRgb) {
 			const rgb = rgbaToRgb(imageData.data);
-			bytes = encodePngWithFilter(rgb, imageData.width, imageData.height, 2, compressionLevel, filterCode);
+			bytes = wasmModule.encodePngWithFilter(rgb, imageData.width, imageData.height, 2, compressionLevel, filterCode);
 		} else {
 			const rgba = new Uint8Array(imageData.data);
-			bytes = encodePngWithFilter(rgba, imageData.width, imageData.height, 3, compressionLevel, filterCode);
+			bytes = wasmModule.encodePngWithFilter(rgba, imageData.width, imageData.height, 3, compressionLevel, filterCode);
 		}
 		mime = 'image/png';
 	} else {
 		const quality = clamp(options.quality ?? 85, 1, 100);
 		const rgb = rgbaToRgb(imageData.data);
-		bytes = encodeJpeg(rgb, imageData.width, imageData.height, quality, 2, options.subsampling420 ?? true);
+		bytes = wasmModule.encodeJpeg(rgb, imageData.width, imageData.height, quality, 2, options.subsampling420 ?? true);
 		mime = 'image/jpeg';
 	}
 
@@ -92,6 +95,8 @@ export async function compressImage(imageData: ImageData, options: CompressOptio
 	return { bytes, blob, elapsedMs };
 }
 
-export function getBytesPerPixel(color: number) {
-	return bytesPerPixel(color);
+export async function getBytesPerPixel(color: number) {
+	await initWasm();
+	if (!wasmModule) throw new Error('WASM module not loaded');
+	return wasmModule.bytesPerPixel(color);
 }
