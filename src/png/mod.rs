@@ -11,7 +11,7 @@ use crate::compress::deflate::deflate_zlib_packed;
 #[cfg(feature = "timing")]
 use crate::compress::deflate::{deflate_zlib_packed_with_stats, DeflateStats};
 use crate::error::{Error, Result};
-use bit_depth::{pack_bits, pack_gray, pack_indexed, palette_bit_depth, reduce_bit_depth};
+use bit_depth::{pack_gray, pack_indexed, palette_bit_depth, reduce_bit_depth};
 
 /// PNG file signature (magic bytes).
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
