@@ -29,6 +29,8 @@ pub struct PngOptions {
     pub optimize_alpha: bool,
     /// If true, attempt to reduce color type (e.g., RGB→Gray, RGBA→RGB/GrayAlpha) when lossless-safe.
     pub reduce_color_type: bool,
+    /// If true, strip non-critical ancillary chunks (tEXt, iTXt, zTXt, time) to reduce size.
+    pub strip_metadata: bool,
 }
 
 impl Default for PngOptions {
@@ -40,6 +42,7 @@ impl Default for PngOptions {
             filter_strategy: FilterStrategy::AdaptiveFast,
             optimize_alpha: false,
             reduce_color_type: false,
+            strip_metadata: false,
         }
     }
 }
@@ -52,6 +55,7 @@ impl PngOptions {
             filter_strategy: FilterStrategy::AdaptiveFast,
             optimize_alpha: false,
             reduce_color_type: false,
+            strip_metadata: false,
         }
     }
 
@@ -62,6 +66,7 @@ impl PngOptions {
             filter_strategy: FilterStrategy::Adaptive,
             optimize_alpha: false,
             reduce_color_type: false,
+            strip_metadata: false,
         }
     }
 
@@ -72,6 +77,7 @@ impl PngOptions {
             filter_strategy: FilterStrategy::AdaptiveSampled { interval: 2 },
             optimize_alpha: false,
             reduce_color_type: false,
+            strip_metadata: false,
         }
     }
 }
@@ -204,6 +210,11 @@ pub fn encode_into(
 
     // Write IEND chunk
     write_iend(output);
+
+    // Optionally strip metadata chunks to reduce size
+    if options.strip_metadata {
+        strip_metadata_chunks(output);
+    }
 
     Ok(())
 }
@@ -427,6 +438,47 @@ fn analyze_rgba(data: &[u8]) -> (bool, bool) {
     (all_opaque, all_gray)
 }
 
+/// Strip non-critical ancillary chunks to reduce output size.
+/// Currently removes tEXt, zTXt, iTXt, and tIME chunks.
+fn strip_metadata_chunks(output: &mut Vec<u8>) {
+    // PNG layout: signature (8), then chunks: length(4), type(4), data(n), crc(4)
+    let mut cursor = 8;
+    let mut stripped = Vec::with_capacity(output.len());
+    stripped.extend_from_slice(&output[..8]); // signature
+
+    while cursor + 8 <= output.len() {
+        let len_bytes = &output[cursor..cursor + 4];
+        let len = u32::from_be_bytes(len_bytes.try_into().unwrap()) as usize;
+        let chunk_type = &output[cursor + 4..cursor + 8];
+        let chunk_data_start = cursor + 8;
+        let chunk_data_end = chunk_data_start + len;
+        let chunk_crc_end = chunk_data_end + 4;
+        if chunk_crc_end > output.len() {
+            break; // malformed; bail out
+        }
+
+        let is_ancillary = (chunk_type[0] & 0x20) != 0;
+        let should_strip = is_ancillary
+            && (chunk_type == b"tEXt"
+                || chunk_type == b"zTXt"
+                || chunk_type == b"iTXt"
+                || chunk_type == b"tIME");
+
+        if !should_strip {
+            stripped.extend_from_slice(&output[cursor..chunk_crc_end]);
+        }
+
+        cursor = chunk_crc_end;
+
+        if chunk_type == b"IEND" {
+            break;
+        }
+    }
+
+    output.clear();
+    output.extend_from_slice(&stripped);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -561,6 +613,37 @@ mod tests {
         let (out, ct) = maybe_reduce_color_type(&pixels, 2, 1, ColorType::Rgba, &opts);
         assert!(matches!(ct, ColorType::GrayAlpha));
         assert_eq!(&out[..], &[8, 10, 9, 0]);
+    }
+
+    #[test]
+    fn test_strip_metadata_chunks() {
+        // Build a minimal PNG with a tEXt chunk and ensure it is removed.
+        let mut png_bytes = Vec::new();
+        png_bytes.extend_from_slice(&PNG_SIGNATURE);
+        // IHDR with 1x1 RGB
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&1u32.to_be_bytes()); // width
+        ihdr.extend_from_slice(&1u32.to_be_bytes()); // height
+        ihdr.push(8); // bit depth
+        ihdr.push(2); // color type (RGB)
+        ihdr.push(0); // compression
+        ihdr.push(0); // filter
+        ihdr.push(0); // interlace
+        chunk::write_chunk(&mut png_bytes, b"IHDR", &ihdr);
+        // tEXt chunk
+        chunk::write_chunk(&mut png_bytes, b"tEXt", b"Comment\0hello");
+        // IDAT (empty)
+        chunk::write_chunk(&mut png_bytes, b"IDAT", &[]);
+        // IEND
+        chunk::write_chunk(&mut png_bytes, b"IEND", &[]);
+
+        strip_metadata_chunks(&mut png_bytes);
+        // Should no longer contain tEXt
+        assert!(!png_bytes.windows(4).any(|w| w == b"tEXt"));
+        // Should still contain IHDR/IDAT/IEND
+        assert!(png_bytes.windows(4).any(|w| w == b"IHDR"));
+        assert!(png_bytes.windows(4).any(|w| w == b"IDAT"));
+        assert!(png_bytes.windows(4).any(|w| w == b"IEND"));
     }
 
     #[test]
