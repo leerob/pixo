@@ -1,6 +1,6 @@
-use std::fs;
 use comprs::ColorType;
 use image::{DynamicImage, GenericImageView, ImageEncoder};
+use std::fs;
 
 use super::jpeg_corpus::read_jpeg_corpus;
 
@@ -62,7 +62,12 @@ pub fn psnr(a: &[u8], b: &[u8]) -> Option<f64> {
 
 /// Encode via the `image` crate PNG encoder for reference sizing.
 #[allow(dead_code)]
-pub fn encode_png_reference(data: &[u8], width: u32, height: u32, ct: ColorType) -> Result<Vec<u8>, String> {
+pub fn encode_png_reference(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    ct: ColorType,
+) -> Result<Vec<u8>, String> {
     let mut output = Vec::new();
     let color = match ct {
         ColorType::Gray => image::ColorType::L8,

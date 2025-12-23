@@ -625,9 +625,15 @@ fn test_jpeg_real_world_size_and_quality() {
                 subsampling: jpeg::Subsampling::S444,
                 restart_interval: None,
             };
-            let encoded_444 =
-                jpeg::encode_with_options(rgb, img.width, img.height, quality, ColorType::Rgb, &opts_444)
-                    .expect("encode 444");
+            let encoded_444 = jpeg::encode_with_options(
+                rgb,
+                img.width,
+                img.height,
+                quality,
+                ColorType::Rgb,
+                &opts_444,
+            )
+            .expect("encode 444");
             let decoded_444 = image::load_from_memory(&encoded_444)
                 .expect("decode 444")
                 .to_rgb8();
@@ -657,9 +663,15 @@ fn test_jpeg_real_world_size_and_quality() {
                 subsampling: jpeg::Subsampling::S420,
                 restart_interval: None,
             };
-            let encoded_420 =
-                jpeg::encode_with_options(rgb, img.width, img.height, quality, ColorType::Rgb, &opts_420)
-                    .expect("encode 420");
+            let encoded_420 = jpeg::encode_with_options(
+                rgb,
+                img.width,
+                img.height,
+                quality,
+                ColorType::Rgb,
+                &opts_420,
+            )
+            .expect("encode 420");
             let decoded_420 = image::load_from_memory(&encoded_420)
                 .expect("decode 420")
                 .to_rgb8();
