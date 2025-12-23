@@ -88,7 +88,7 @@ pub fn encode_png(
 /// * `height` - Image height in pixels
 /// * `color_type` - Color type: 0=Gray, 1=GrayAlpha, 2=Rgb, 3=Rgba
 /// * `compression_level` - Compression level 1-9 (6 recommended)
-/// * `filter` - Filter strategy: 0=None, 1=Sub, 2=Up, 3=Average, 4=Paeth, 5=Adaptive, 6=AdaptiveFast
+/// * `filter` - Filter strategy: 0=None, 1=Sub, 2=Up, 3=Average, 4=Paeth, 5=Adaptive, 6=AdaptiveFast, 7=Entropy, 8=MinSum, 9=Bigrams, 10=BigEnt, 11=Brute
 ///
 /// # Returns
 ///
@@ -112,9 +112,14 @@ pub fn encode_png_with_filter(
         4 => FilterStrategy::Paeth,
         5 => FilterStrategy::Adaptive,
         6 => FilterStrategy::AdaptiveFast,
+        7 => FilterStrategy::Entropy,
+        8 => FilterStrategy::MinSum,
+        9 => FilterStrategy::Bigrams,
+        10 => FilterStrategy::BigEnt,
+        11 => FilterStrategy::Brute,
         _ => {
             return Err(JsError::new(&format!(
-                "Invalid filter: {filter}. Expected 0-6",
+                "Invalid filter: {filter}. Expected 0-11",
             )))
         }
     };

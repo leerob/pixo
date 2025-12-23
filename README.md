@@ -151,7 +151,7 @@ comprs input.png -o output.jpg -v
 | `-q, --quality`     | JPEG quality (1-100)                                             | 85                         |
 | `-c, --compression` | PNG compression level (1-9)                                      | 6                          |
 | `--subsampling`     | JPEG chroma subsampling (`s444`, `s420`)                         | s444                       |
-| `--filter`          | PNG filter (`none`, `sub`, `up`, `average`, `paeth`, `entropy`, `adaptive`, `adaptive-fast`, `adaptive-sampled`) | adaptive                   |
+| `--filter`          | PNG filter (`none`, `sub`, `up`, `average`, `paeth`, `minsum`, `entropy`, `bigrams`, `bigent`, `brute`, `adaptive`, `adaptive-fast`, `adaptive-sampled`) | adaptive                   |
 | `--adaptive-sample-interval` | Rows between full adaptive evaluations when using `adaptive-sampled` | 4 |
 | `--png-optimize-alpha` | Zero color channels for fully transparent pixels (PNG)        | false                      |
 | `--png-reduce-color`   | Losslessly reduce color type when possible (PNG)              | false                      |

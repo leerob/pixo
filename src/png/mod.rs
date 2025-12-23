@@ -103,8 +103,16 @@ pub enum FilterStrategy {
     Average,
     /// Always use Paeth filter.
     Paeth,
+    /// Choose filter per row minimizing sum of absolute values (min-sum).
+    MinSum,
     /// Choose best filter per row using entropy scoring (slower, better compression).
     Entropy,
+    /// Choose best filter per row using bigram entropy scoring.
+    Bigrams,
+    /// Combined entropy + bigram entropy scoring (oxipng "bigent" style).
+    BigEnt,
+    /// Heaviest heuristic: combines min-sum + entropy + bigram entropy, tries all filters.
+    Brute,
     /// Choose best filter per row (best compression, slower).
     Adaptive,
     /// Adaptive but with early cut and limited trials (faster).

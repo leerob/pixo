@@ -329,7 +329,11 @@ fn test_filter_strategies() {
         FilterStrategy::Up,
         FilterStrategy::Average,
         FilterStrategy::Paeth,
+        FilterStrategy::MinSum,
         FilterStrategy::Entropy,
+        FilterStrategy::Bigrams,
+        FilterStrategy::BigEnt,
+        FilterStrategy::Brute,
         FilterStrategy::Adaptive,
     ];
 

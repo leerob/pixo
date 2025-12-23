@@ -121,8 +121,16 @@ enum FilterArg {
     Average,
     /// Paeth filter
     Paeth,
+    /// Min-sum filter selection (oxipng-style)
+    Minsum,
     /// Entropy-scored filter selection (more compression, slower)
     Entropy,
+    /// Bigrams entropy-scored filter selection
+    Bigrams,
+    /// Combined entropy + bigram entropy scoring
+    Bigent,
+    /// Composite heuristic (min-sum + entropy + bigram entropy)
+    Brute,
     /// Adaptive filter selection (best compression)
     Adaptive,
     /// Adaptive with reduced trials and early cutoffs (faster)
@@ -149,7 +157,11 @@ impl FilterArg {
             FilterArg::Up => FilterStrategy::Up,
             FilterArg::Average => FilterStrategy::Average,
             FilterArg::Paeth => FilterStrategy::Paeth,
+            FilterArg::Minsum => FilterStrategy::MinSum,
             FilterArg::Entropy => FilterStrategy::Entropy,
+            FilterArg::Bigrams => FilterStrategy::Bigrams,
+            FilterArg::Bigent => FilterStrategy::BigEnt,
+            FilterArg::Brute => FilterStrategy::Brute,
             FilterArg::Adaptive => FilterStrategy::Adaptive,
             FilterArg::AdaptiveFast => FilterStrategy::AdaptiveFast,
             FilterArg::AdaptiveSampled => FilterStrategy::AdaptiveSampled {
