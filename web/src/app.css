@@ -36,7 +36,7 @@ html, body {
 }
 
 body {
-	@apply bg-surface-0 text-neutral-200 min-h-svh antialiased font-mono;
+	@apply bg-surface-1 text-neutral-200 min-h-svh antialiased font-mono;
 }
 
 .btn-primary {
