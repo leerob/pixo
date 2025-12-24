@@ -70,6 +70,32 @@ fn test_quality_levels() {
     }
 }
 
+/// Restart interval with decoding via jpeg-decoder to ensure bitstream validity.
+#[test]
+fn test_jpeg_restart_interval_decodes_with_external_decoder() {
+    use jpeg_decoder::Decoder;
+    use std::io::Cursor;
+
+    let width = 16;
+    let height = 8;
+    let mut rng = StdRng::seed_from_u64(8888);
+    let mut rgb = vec![0u8; (width * height * 3) as usize];
+    rng.fill(rgb.as_mut_slice());
+
+    let mut opts = jpeg::JpegOptions::fast(85);
+    opts.restart_interval = Some(2); // restart every 2 MCUs
+
+    let jpeg_bytes = jpeg::encode_with_options(&rgb, width, height, ColorType::Rgb, &opts).unwrap();
+
+    let mut decoder = Decoder::new(Cursor::new(jpeg_bytes));
+    let decoded = decoder.decode().expect("decode restart-interval JPEG");
+    let info = decoder.info().expect("decoder info");
+
+    assert_eq!(info.width as usize, width as usize);
+    assert_eq!(info.height as usize, height as usize);
+    // jpeg-decoder outputs RGB24 by default
+    assert_eq!(decoded.len(), (width * height * 3) as usize);
+}
 /// Test different image sizes.
 #[test]
 fn test_various_sizes() {
