@@ -268,7 +268,7 @@ pub fn encode_with_options_into(
         return Err(Error::InvalidQuality(options.quality));
     }
     if matches!(options.restart_interval, Some(0)) {
-        return Err(Error::InvalidQuality(0)); // reuse quality error type for invalid param
+        return Err(Error::InvalidRestartInterval(0));
     }
 
     // Validate dimensions
@@ -1590,6 +1590,18 @@ mod tests {
         assert!(matches!(
             encode(&pixels, 1, 1, 101),
             Err(Error::InvalidQuality(101))
+        ));
+    }
+
+    #[test]
+    fn test_encode_invalid_restart_interval() {
+        let pixels = vec![255, 0, 0];
+        let mut options = JpegOptions::fast(85);
+        options.restart_interval = Some(0);
+        let mut output = Vec::new();
+        assert!(matches!(
+            encode_with_options_into(&mut output, &pixels, 1, 1, ColorType::Rgb, &options),
+            Err(Error::InvalidRestartInterval(0))
         ));
     }
 
