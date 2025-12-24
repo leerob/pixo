@@ -7,9 +7,7 @@ use crate::compress::lz77::{
     CostModel, Lz77Compressor, PackedToken, Token, MAX_MATCH_LENGTH, MIN_MATCH_LENGTH,
 };
 use crate::compress::{adler32::adler32, huffman};
-use std::cell::RefCell;
-use std::sync::LazyLock;
-use std::thread_local;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -112,26 +110,27 @@ const HIGH_ENTROPY_BAIL_BYTES: usize = 4 * 1024;
 /// When input has only literals (no matches) and meets this size, prefer stored blocks immediately.
 const STORED_LITERAL_ONLY_BYTES: usize = 8 * 1024;
 
-thread_local! {
-    /// Thread-local pool of reusable deflaters keyed by compression level.
-    static DEFLATE_REUSE: RefCell<Vec<Option<Deflater>>> = const { RefCell::new(Vec::new()) };
-}
+/// Global pool of reusable deflaters keyed by compression level.
+/// Mutex-protected to allow reuse across threads while avoiding RefCell/thread-local costs.
+static DEFLATE_REUSE: LazyLock<Vec<Mutex<Deflater>>> = LazyLock::new(|| {
+    (0..=9)
+        .map(|level| Mutex::new(Deflater::new(level.max(1) as u8)))
+        .collect()
+});
 
 #[inline]
 fn with_reusable_deflater<T>(level: u8, f: impl FnOnce(&mut Deflater) -> T) -> T {
     let level = level.clamp(1, 9);
-    DEFLATE_REUSE.with(|pool| {
-        let mut pool = pool.borrow_mut();
-        let idx = level as usize;
-        if pool.len() <= idx {
-            pool.resize_with(idx + 1, || None);
-        }
-        if pool[idx].as_ref().map(|d| d.level()) != Some(level) {
-            pool[idx] = Some(Deflater::new(level));
-        }
-        let deflater = pool[idx].as_mut().expect("deflater slot initialized");
-        f(deflater)
-    })
+    let idx = level as usize;
+    let pool = DEFLATE_REUSE
+        .get(idx)
+        .unwrap_or_else(|| panic!("deflater pool missing for level {level}"));
+    let mut guard = pool.lock().expect("deflater mutex poisoned");
+    // If pool was initialized with different level (future-proof), refresh it.
+    if guard.level() != level {
+        *guard = Deflater::new(level);
+    }
+    f(&mut guard)
 }
 
 #[inline]
