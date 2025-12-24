@@ -93,6 +93,12 @@ impl TryFrom<u8> for ColorType {
     }
 }
 
+impl From<ColorType> for u8 {
+    fn from(color: ColorType) -> Self {
+        color as u8
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +143,18 @@ mod tests {
         assert!(matches!(ColorType::try_from(2), Ok(ColorType::Rgb)));
         assert!(matches!(ColorType::try_from(3), Ok(ColorType::Rgba)));
         assert!(ColorType::try_from(99).is_err());
+    }
+
+    #[test]
+    fn test_color_type_roundtrip_u8() {
+        for (val, ct) in [
+            (0u8, ColorType::Gray),
+            (1u8, ColorType::GrayAlpha),
+            (2u8, ColorType::Rgb),
+            (3u8, ColorType::Rgba),
+        ] {
+            assert_eq!(u8::from(ct), val);
+            assert_eq!(ColorType::try_from(val).unwrap(), ct);
+        }
     }
 }
