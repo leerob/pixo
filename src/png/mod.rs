@@ -2237,4 +2237,17 @@ mod tests {
             "PLTE should have exactly 20 colors (60 bytes)"
         );
     }
+
+    #[test]
+    fn test_maybe_trim_transparency_all_opaque() {
+        let alpha = vec![255u8; 5];
+        assert_eq!(maybe_trim_transparency(&alpha), None);
+    }
+
+    #[test]
+    fn test_maybe_trim_transparency_trims_trailing() {
+        let alpha = vec![255u8, 200, 255, 255];
+        let trimmed = maybe_trim_transparency(&alpha).expect("should trim");
+        assert_eq!(trimmed, vec![255u8, 200]);
+    }
 }
