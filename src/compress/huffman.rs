@@ -368,4 +368,19 @@ mod tests {
             assert_eq!(code.length, 5);
         }
     }
+
+    #[test]
+    fn test_code_lengths_respect_max_length() {
+        // Many symbols with non-zero frequency should still produce codes
+        // that do not exceed the specified max length (15 for DEFLATE literals).
+        let freqs = vec![1u32; 400]; // more than the DEFLATE literal alphabet size
+        let codes = build_codes(&freqs, 15);
+        for code in codes {
+            assert!(
+                code.length <= 15,
+                "code length exceeded max: {}",
+                code.length
+            );
+        }
+    }
 }
