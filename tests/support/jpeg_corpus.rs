@@ -32,40 +32,32 @@ pub const JPEG_BASELINE: &[(&str, &str, &str)] = &[
 ];
 
 /// JPEG images with arithmetic coding (less common).
-pub const JPEG_ARITHMETIC: &[(&str, &str, &str)] = &[
-    (
-        "testimgari.jpg",
-        "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/main/testimages/testimgari.jpg",
-        "4672c7f08864cd0a8c73a4fa4b66ca32b635d38464551c1ecf06564ae8c89b38",
-    ),
-];
+pub const JPEG_ARITHMETIC: &[(&str, &str, &str)] = &[(
+    "testimgari.jpg",
+    "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/main/testimages/testimgari.jpg",
+    "4672c7f08864cd0a8c73a4fa4b66ca32b635d38464551c1ecf06564ae8c89b38",
+)];
 
 /// Progressive JPEG test images (interlaced display).
-pub const JPEG_PROGRESSIVE: &[(&str, &str, &str)] = &[
-    (
-        "testimgint.jpg",
-        "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/main/testimages/testimgint.jpg",
-        "491679b8057739b3c8e5bacd1e918efb1691d271cbbd69820ff8d480dcb90963",
-    ),
-];
+pub const JPEG_PROGRESSIVE: &[(&str, &str, &str)] = &[(
+    "testimgint.jpg",
+    "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/main/testimages/testimgint.jpg",
+    "491679b8057739b3c8e5bacd1e918efb1691d271cbbd69820ff8d480dcb90963",
+)];
 
 /// 12-bit JPEG test images.
-pub const JPEG_12BIT: &[(&str, &str, &str)] = &[
-    (
-        "testorig12.jpg",
-        "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/main/testimages/testorig12.jpg",
-        "34790770f76db8e60a7765b52ca4edf5f16bc21bcb8c6045ca2efef39a8a013e",
-    ),
-];
+pub const JPEG_12BIT: &[(&str, &str, &str)] = &[(
+    "testorig12.jpg",
+    "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/main/testimages/testorig12.jpg",
+    "34790770f76db8e60a7765b52ca4edf5f16bc21bcb8c6045ca2efef39a8a013e",
+)];
 
 /// Special color handling test images.
-pub const JPEG_COLOR: &[(&str, &str, &str)] = &[
-    (
-        "cram_bgr24.jpg",
-        "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/main/testimages/cram_bgr24.jpg",
-        "a4bd6d7e704901166a6ed422dfc95168d6b243326f6b5e9d626fae0f82b1bfc9",
-    ),
-];
+pub const JPEG_COLOR: &[(&str, &str, &str)] = &[(
+    "cram_bgr24.jpg",
+    "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/main/testimages/cram_bgr24.jpg",
+    "a4bd6d7e704901166a6ed422dfc95168d6b243326f6b5e9d626fae0f82b1bfc9",
+)];
 
 /// Fetch JPEG corpus images to the specified directory with SHA256 verification.
 fn fetch_jpeg_category(
@@ -191,6 +183,7 @@ pub fn read_jpeg_baseline() -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
 
 /// Decode JPEG corpus images to raw RGB pixels.
 /// Returns (filename, width, height, RGB pixels) for each image.
+#[allow(clippy::type_complexity)]
 pub fn read_jpeg_corpus_decoded() -> Result<Vec<(String, u32, u32, Vec<u8>)>, String> {
     let raw = read_jpeg_corpus()?;
     let mut decoded = Vec::new();

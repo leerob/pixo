@@ -1222,6 +1222,7 @@ fn format_duration(duration: Duration) -> String {
 
 /// Load Kodak images for benchmarking.
 /// Returns a subset to keep benchmark times reasonable.
+#[allow(clippy::type_complexity)]
 fn load_kodak_for_benchmark() -> Option<Vec<(String, u32, u32, Vec<u8>)>> {
     let fixtures_dir = std::path::Path::new("tests/fixtures/kodak");
     if !fixtures_dir.exists() {

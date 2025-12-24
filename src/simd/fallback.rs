@@ -57,7 +57,7 @@ pub fn crc32(data: &[u8]) -> u32 {
 }
 
 /// Compute match length between two positions (scalar fallback with u64 optimization).
-#[inline]
+#[inline(always)]
 pub fn match_length(data: &[u8], pos1: usize, pos2: usize, max_len: usize) -> usize {
     let mut length = 0;
 

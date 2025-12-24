@@ -773,8 +773,48 @@ fn encode_progressive(
 }
 
 /// Compute all DCT coefficients for the image.
+/// Uses parallel processing with Rayon when the `parallel` feature is enabled.
 #[allow(clippy::type_complexity)]
 fn compute_all_coefficients(
+    data: &[u8],
+    width: usize,
+    height: usize,
+    color_type: ColorType,
+    subsampling: Subsampling,
+    quant_tables: &QuantizationTables,
+    use_trellis: bool,
+) -> (Vec<[i16; 64]>, Vec<[i16; 64]>, Vec<[i16; 64]>) {
+    #[cfg(feature = "parallel")]
+    {
+        compute_all_coefficients_parallel(
+            data,
+            width,
+            height,
+            color_type,
+            subsampling,
+            quant_tables,
+            use_trellis,
+        )
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    {
+        compute_all_coefficients_sequential(
+            data,
+            width,
+            height,
+            color_type,
+            subsampling,
+            quant_tables,
+            use_trellis,
+        )
+    }
+}
+
+/// Sequential implementation of coefficient computation.
+#[cfg_attr(feature = "parallel", allow(dead_code))]
+#[allow(clippy::type_complexity)]
+fn compute_all_coefficients_sequential(
     data: &[u8],
     width: usize,
     height: usize,
@@ -862,6 +902,164 @@ fn compute_all_coefficients(
     }
 
     (y_coeffs, cb_coeffs, cr_coeffs)
+}
+
+/// Parallel implementation of coefficient computation using Rayon.
+/// Processes blocks in parallel for significant speedup on multi-core systems.
+#[cfg(feature = "parallel")]
+#[allow(clippy::type_complexity)]
+fn compute_all_coefficients_parallel(
+    data: &[u8],
+    width: usize,
+    height: usize,
+    color_type: ColorType,
+    subsampling: Subsampling,
+    quant_tables: &QuantizationTables,
+    use_trellis: bool,
+) -> (Vec<[i16; 64]>, Vec<[i16; 64]>, Vec<[i16; 64]>) {
+    use rayon::prelude::*;
+
+    /// Helper struct to hold block coordinates
+    struct BlockCoord {
+        x: usize,
+        y: usize,
+    }
+
+    // Helper to quantize a block with optional trellis
+    let quantize_with_trellis = |dct: &[f32; 64], table: &[f32; 64]| -> [i16; 64] {
+        if use_trellis {
+            trellis::trellis_quantize(dct, table, None)
+        } else {
+            quantize_block(dct, table)
+        }
+    };
+
+    match (color_type, subsampling) {
+        (ColorType::Gray, _) => {
+            let padded_width = (width + 7) & !7;
+            let padded_height = (height + 7) & !7;
+
+            // Collect block coordinates
+            let coords: Vec<BlockCoord> = (0..padded_height)
+                .step_by(8)
+                .flat_map(|y| {
+                    (0..padded_width)
+                        .step_by(8)
+                        .map(move |x| BlockCoord { x, y })
+                })
+                .collect();
+
+            // Process blocks in parallel
+            let y_coeffs: Vec<[i16; 64]> = coords
+                .par_iter()
+                .map(|coord| {
+                    let (y_block, _, _) =
+                        extract_block(data, width, height, coord.x, coord.y, color_type);
+                    let y_dct = dct_2d(&y_block);
+                    quantize_with_trellis(&y_dct, &quant_tables.luminance_table)
+                })
+                .collect();
+
+            (y_coeffs, Vec::new(), Vec::new())
+        }
+        (_, Subsampling::S444) => {
+            let padded_width = (width + 7) & !7;
+            let padded_height = (height + 7) & !7;
+
+            // Collect block coordinates
+            let coords: Vec<BlockCoord> = (0..padded_height)
+                .step_by(8)
+                .flat_map(|y| {
+                    (0..padded_width)
+                        .step_by(8)
+                        .map(move |x| BlockCoord { x, y })
+                })
+                .collect();
+
+            // Process blocks in parallel, collecting all three channels
+            let results: Vec<([i16; 64], [i16; 64], [i16; 64])> = coords
+                .par_iter()
+                .map(|coord| {
+                    let (y_block, cb_block, cr_block) =
+                        extract_block(data, width, height, coord.x, coord.y, color_type);
+
+                    let y_quant =
+                        quantize_with_trellis(&dct_2d(&y_block), &quant_tables.luminance_table);
+                    let cb_quant =
+                        quantize_with_trellis(&dct_2d(&cb_block), &quant_tables.chrominance_table);
+                    let cr_quant =
+                        quantize_with_trellis(&dct_2d(&cr_block), &quant_tables.chrominance_table);
+
+                    (y_quant, cb_quant, cr_quant)
+                })
+                .collect();
+
+            // Unzip results
+            let mut y_coeffs = Vec::with_capacity(results.len());
+            let mut cb_coeffs = Vec::with_capacity(results.len());
+            let mut cr_coeffs = Vec::with_capacity(results.len());
+
+            for (y, cb, cr) in results {
+                y_coeffs.push(y);
+                cb_coeffs.push(cb);
+                cr_coeffs.push(cr);
+            }
+
+            (y_coeffs, cb_coeffs, cr_coeffs)
+        }
+        (_, Subsampling::S420) => {
+            let padded_width_420 = (width + 15) & !15;
+            let padded_height_420 = (height + 15) & !15;
+
+            // Collect MCU coordinates
+            let coords: Vec<BlockCoord> = (0..padded_height_420)
+                .step_by(16)
+                .flat_map(|y| {
+                    (0..padded_width_420)
+                        .step_by(16)
+                        .map(move |x| BlockCoord { x, y })
+                })
+                .collect();
+
+            // Process MCUs in parallel
+            // Each MCU produces 4 Y blocks + 1 Cb + 1 Cr
+            let results: Vec<([[i16; 64]; 4], [i16; 64], [i16; 64])> = coords
+                .par_iter()
+                .map(|coord| {
+                    let (y_blocks, cb_block, cr_block) =
+                        extract_mcu_420(data, width, height, coord.x, coord.y);
+
+                    let mut y_quants = [[0i16; 64]; 4];
+                    for (i, y_block) in y_blocks.iter().enumerate() {
+                        y_quants[i] =
+                            quantize_with_trellis(&dct_2d(y_block), &quant_tables.luminance_table);
+                    }
+
+                    let cb_quant =
+                        quantize_with_trellis(&dct_2d(&cb_block), &quant_tables.chrominance_table);
+                    let cr_quant =
+                        quantize_with_trellis(&dct_2d(&cr_block), &quant_tables.chrominance_table);
+
+                    (y_quants, cb_quant, cr_quant)
+                })
+                .collect();
+
+            // Unzip and flatten results
+            let mut y_coeffs = Vec::with_capacity(results.len() * 4);
+            let mut cb_coeffs = Vec::with_capacity(results.len());
+            let mut cr_coeffs = Vec::with_capacity(results.len());
+
+            for (y_quants, cb, cr) in results {
+                for y in y_quants {
+                    y_coeffs.push(y);
+                }
+                cb_coeffs.push(cb);
+                cr_coeffs.push(cr);
+            }
+
+            (y_coeffs, cb_coeffs, cr_coeffs)
+        }
+    }
 }
 
 /// Encode DC scan for progressive JPEG.

@@ -726,7 +726,11 @@ fn test_jpeg_kodak_subset() {
             .unwrap_or_else(|e| panic!("Failed to encode Kodak {name}: {e}"));
 
         // Verify valid JPEG
-        assert_eq!(&encoded[0..2], &[0xFF, 0xD8], "Missing SOI for Kodak {name}");
+        assert_eq!(
+            &encoded[0..2],
+            &[0xFF, 0xD8],
+            "Missing SOI for Kodak {name}"
+        );
         assert_eq!(
             &encoded[encoded.len() - 2..],
             &[0xFF, 0xD9],

@@ -196,6 +196,7 @@ pub fn read_kodak_subset(count: usize) -> Result<Vec<(PathBuf, Vec<u8>)>, String
 
 /// Decode Kodak images to raw RGB pixels.
 /// Returns (filename, width, height, RGB pixels) for each image.
+#[allow(clippy::type_complexity)]
 pub fn read_kodak_decoded() -> Result<Vec<(String, u32, u32, Vec<u8>)>, String> {
     let raw = read_kodak()?;
     let mut decoded = Vec::new();
@@ -216,6 +217,7 @@ pub fn read_kodak_decoded() -> Result<Vec<(String, u32, u32, Vec<u8>)>, String> 
 }
 
 /// Decode a subset of Kodak images to raw RGB pixels.
+#[allow(clippy::type_complexity)]
 pub fn read_kodak_decoded_subset(count: usize) -> Result<Vec<(String, u32, u32, Vec<u8>)>, String> {
     let all = read_kodak_decoded()?;
     Ok(all.into_iter().take(count).collect())

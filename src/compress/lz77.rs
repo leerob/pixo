@@ -101,7 +101,7 @@ impl PackedToken {
 }
 
 /// Hash function for 4-byte sequences with better distribution.
-#[inline]
+#[inline(always)]
 fn hash4(data: &[u8], pos: usize) -> usize {
     if pos + 3 >= data.len() {
         return 0;
@@ -496,7 +496,7 @@ impl Lz77Compressor {
 
     /// Calculate match length between two positions.
     /// Uses SIMD (when available) or multi-byte comparison for better performance.
-    #[inline]
+    #[inline(always)]
     fn match_length(&self, data: &[u8], pos1: usize, pos2: usize) -> usize {
         let max_len = (data.len() - pos2).min(MAX_MATCH_LENGTH);
 
@@ -546,7 +546,7 @@ impl Lz77Compressor {
     }
 
     /// Update hash table for a position.
-    #[inline]
+    #[inline(always)]
     fn update_hash(&mut self, data: &[u8], pos: usize) {
         if pos + 3 >= data.len() {
             return;

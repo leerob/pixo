@@ -162,7 +162,7 @@ pub fn gradient_radial(width: u32, height: u32) -> Vec<u8> {
     let mut pixels = Vec::with_capacity((width * height * 3) as usize);
     let cx = width as f32 / 2.0;
     let cy = height as f32 / 2.0;
-    let max_dist = ((cx * cx + cy * cy) as f32).sqrt();
+    let max_dist = (cx * cx + cy * cy).sqrt();
 
     for y in 0..height {
         for x in 0..width {
@@ -214,14 +214,14 @@ pub fn sharp_edges(width: u32, height: u32) -> Vec<u8> {
         for x in 0..width {
             // Create a pattern with sharp transitions
             let region = match (x * 4 / width.max(1), y * 4 / height.max(1)) {
-                (0, 0) | (2, 2) => [255, 0, 0],   // Red
-                (1, 0) | (3, 2) => [0, 255, 0],   // Green
-                (0, 1) | (2, 3) => [0, 0, 255],   // Blue
-                (1, 1) | (3, 3) => [255, 255, 0], // Yellow
-                (2, 0) | (0, 2) => [255, 0, 255], // Magenta
-                (3, 0) | (1, 2) => [0, 255, 255], // Cyan
+                (0, 0) | (2, 2) => [255, 0, 0],     // Red
+                (1, 0) | (3, 2) => [0, 255, 0],     // Green
+                (0, 1) | (2, 3) => [0, 0, 255],     // Blue
+                (1, 1) | (3, 3) => [255, 255, 0],   // Yellow
+                (2, 0) | (0, 2) => [255, 0, 255],   // Magenta
+                (3, 0) | (1, 2) => [0, 255, 255],   // Cyan
                 (2, 1) | (0, 3) => [255, 255, 255], // White
-                _ => [0, 0, 0],                   // Black
+                _ => [0, 0, 0],                     // Black
             };
             pixels.extend_from_slice(&region);
         }
@@ -289,28 +289,84 @@ pub const EDGE_CASE_DIMENSIONS: &[(u32, u32, &str)] = &[
 
 /// Generate a set of standard test images for comprehensive testing.
 /// Returns (name, width, height, RGB pixels).
+#[allow(clippy::vec_init_then_push)]
 pub fn generate_test_suite() -> Vec<(String, u32, u32, Vec<u8>)> {
     let mut suite = Vec::new();
 
     // Solid colors
-    suite.push(("solid_black".to_string(), 64, 64, solid_color(64, 64, 0, 0, 0)));
-    suite.push(("solid_white".to_string(), 64, 64, solid_color(64, 64, 255, 255, 255)));
-    suite.push(("solid_red".to_string(), 64, 64, solid_color(64, 64, 255, 0, 0)));
-    suite.push(("solid_green".to_string(), 64, 64, solid_color(64, 64, 0, 255, 0)));
-    suite.push(("solid_blue".to_string(), 64, 64, solid_color(64, 64, 0, 0, 255)));
+    suite.push((
+        "solid_black".to_string(),
+        64,
+        64,
+        solid_color(64, 64, 0, 0, 0),
+    ));
+    suite.push((
+        "solid_white".to_string(),
+        64,
+        64,
+        solid_color(64, 64, 255, 255, 255),
+    ));
+    suite.push((
+        "solid_red".to_string(),
+        64,
+        64,
+        solid_color(64, 64, 255, 0, 0),
+    ));
+    suite.push((
+        "solid_green".to_string(),
+        64,
+        64,
+        solid_color(64, 64, 0, 255, 0),
+    ));
+    suite.push((
+        "solid_blue".to_string(),
+        64,
+        64,
+        solid_color(64, 64, 0, 0, 255),
+    ));
 
     // Gradients
-    suite.push(("gradient_h".to_string(), 256, 64, gradient_horizontal(256, 64)));
-    suite.push(("gradient_v".to_string(), 64, 256, gradient_vertical(64, 256)));
-    suite.push(("gradient_d".to_string(), 256, 256, gradient_diagonal(256, 256)));
+    suite.push((
+        "gradient_h".to_string(),
+        256,
+        64,
+        gradient_horizontal(256, 64),
+    ));
+    suite.push((
+        "gradient_v".to_string(),
+        64,
+        256,
+        gradient_vertical(64, 256),
+    ));
+    suite.push((
+        "gradient_d".to_string(),
+        256,
+        256,
+        gradient_diagonal(256, 256),
+    ));
     suite.push(("gradient_rgb".to_string(), 256, 256, gradient_rgb(256, 256)));
-    suite.push(("gradient_radial".to_string(), 256, 256, gradient_radial(256, 256)));
+    suite.push((
+        "gradient_radial".to_string(),
+        256,
+        256,
+        gradient_radial(256, 256),
+    ));
 
     // Patterns
     suite.push(("checker_8".to_string(), 256, 256, checkerboard(256, 256, 8)));
     suite.push(("checker_1".to_string(), 64, 64, high_frequency(64, 64)));
-    suite.push(("stripes_h".to_string(), 256, 64, stripes_horizontal(256, 64, 4)));
-    suite.push(("stripes_v".to_string(), 64, 256, stripes_vertical(64, 256, 4)));
+    suite.push((
+        "stripes_h".to_string(),
+        256,
+        64,
+        stripes_horizontal(256, 64, 4),
+    ));
+    suite.push((
+        "stripes_v".to_string(),
+        64,
+        256,
+        stripes_vertical(64, 256, 4),
+    ));
 
     // Complex patterns
     suite.push(("sharp_edges".to_string(), 256, 256, sharp_edges(256, 256)));
@@ -330,7 +386,12 @@ pub fn generate_test_suite() -> Vec<(String, u32, u32, Vec<u8>)> {
 /// Generate a minimal test suite for quick smoke tests.
 pub fn generate_minimal_test_suite() -> Vec<(String, u32, u32, Vec<u8>)> {
     vec![
-        ("solid".to_string(), 32, 32, solid_color(32, 32, 128, 128, 128)),
+        (
+            "solid".to_string(),
+            32,
+            32,
+            solid_color(32, 32, 128, 128, 128),
+        ),
         ("gradient".to_string(), 64, 64, gradient_rgb(64, 64)),
         ("checker".to_string(), 32, 32, checkerboard(32, 32, 8)),
         ("1x1".to_string(), 1, 1, solid_color(1, 1, 255, 0, 0)),
@@ -377,7 +438,11 @@ mod tests {
         let suite = generate_test_suite();
         assert!(!suite.is_empty());
         for (name, w, h, pixels) in suite {
-            assert_eq!(pixels.len(), (w * h * 3) as usize, "Size mismatch for {name}");
+            assert_eq!(
+                pixels.len(),
+                (w * h * 3) as usize,
+                "Size mismatch for {name}"
+            );
         }
     }
 }

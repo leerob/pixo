@@ -56,69 +56,52 @@ pub unsafe fn adler32_neon(data: &[u8]) -> u32 {
 }
 
 /// Process a block of data for Adler-32 using NEON.
+///
+/// The Adler-32 algorithm computes:
+/// - s1 = 1 + sum of all bytes
+/// - s2 = sum of all s1 values after each byte
+///
+/// For a chunk of 16 bytes at position p:
+/// - s1 contribution = sum(b[i]) for i in 0..16
+/// - s2 contribution = 16*s1_before + 16*b[0] + 15*b[1] + ... + 1*b[15]
 #[target_feature(enable = "neon")]
 unsafe fn adler32_block_neon(data: &[u8], mut s1: u32, mut s2: u32) -> (u32, u32) {
     // Weights for s2 accumulation within a 16-byte chunk
-    // s2 += 16*b[0] + 15*b[1] + ... + 1*b[15]
+    // Position 0 contributes 16 times, position 15 contributes 1 time
     let weights: [u8; 16] = [16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
     let weights_vec = vld1q_u8(weights.as_ptr());
-
-    let mut vs1_total: u32 = 0; // Running sum of s1 values for s2 calculation
-    let mut vs1_acc: u32 = 0; // Accumulated byte sums
-    let mut vs2_acc: u32 = 0; // Accumulated weighted sums
 
     for chunk in data.chunks_exact(16) {
         let v = vld1q_u8(chunk.as_ptr());
 
-        // Add previous s1 total * 16 to s2 (for position weighting)
-        vs2_acc = vs2_acc.wrapping_add(vs1_total.wrapping_mul(16));
+        // s2 += 16 * s1 (contribution from previous s1 value over 16 positions)
+        s2 = s2.wrapping_add(s1.wrapping_mul(16));
 
-        // Compute sum of bytes using horizontal add
-        // Split into two u8x8, widen to u16, then sum
+        // Compute sum of bytes for s1 update
+        // Use pairwise addition: u8x16 -> u16x8 -> u32x4 -> u64x2
+        let sum_16 = vpaddlq_u8(v); // 8 x u16
+        let sum_32 = vpaddlq_u16(sum_16); // 4 x u32
+        let sum_64 = vpaddlq_u32(sum_32); // 2 x u64
+        let chunk_sum = (vgetq_lane_u64(sum_64, 0) + vgetq_lane_u64(sum_64, 1)) as u32;
+
+        // Compute weighted sum for s2: 16*b[0] + 15*b[1] + ... + 1*b[15]
         let v_lo = vget_low_u8(v);
         let v_hi = vget_high_u8(v);
-
-        // Use horizontal add to sum all bytes
-        let chunk_sum = {
-            let v_lo = vget_low_u8(v);
-            let v_hi = vget_high_u8(v);
-            let sum_lo = vpaddl_u8(v_lo); // 4 x u16
-            let sum_hi = vpaddl_u8(v_hi); // 4 x u16
-            let sum_16 = vadd_u16(
-                vpadd_u16(vget_low_u16(vcombine_u16(sum_lo, sum_hi)), vget_high_u16(vcombine_u16(sum_lo, sum_hi))),
-                vdup_n_u16(0)
-            );
-            let s0 = vget_lane_u16(sum_16, 0) as u32;
-            let s1_val = vget_lane_u16(sum_16, 1) as u32;
-            let s2_val = vget_lane_u16(sum_16, 2) as u32;
-            let s3 = vget_lane_u16(sum_16, 3) as u32;
-            s0 + s1_val + s2_val + s3
-        };
-
-        vs1_acc = vs1_acc.wrapping_add(chunk_sum);
-        vs1_total = vs1_total.wrapping_add(chunk_sum);
-
-        // Compute weighted sum for s2: multiply each byte by its weight and sum
         let w_lo = vget_low_u8(weights_vec);
         let w_hi = vget_high_u8(weights_vec);
 
-        // Use vmull to multiply u8 -> u16, then sum horizontally
+        // Multiply u8 -> u16, then sum
         let prod_lo = vmull_u8(v_lo, w_lo); // 8 x u16
         let prod_hi = vmull_u8(v_hi, w_hi); // 8 x u16
 
-        // Sum all products
         let prod_sum = vaddq_u16(prod_lo, prod_hi);
         let prod_32 = vpaddlq_u16(prod_sum); // 4 x u32
         let prod_64 = vpaddlq_u32(prod_32); // 2 x u64
+        let weighted_sum = (vgetq_lane_u64(prod_64, 0) + vgetq_lane_u64(prod_64, 1)) as u32;
 
-        let weighted_sum =
-            (vgetq_lane_u64(prod_64, 0) + vgetq_lane_u64(prod_64, 1)) as u32;
-
-        vs2_acc = vs2_acc.wrapping_add(weighted_sum);
+        s2 = s2.wrapping_add(weighted_sum);
+        s1 = s1.wrapping_add(chunk_sum);
     }
-
-    s1 = s1.wrapping_add(vs1_acc);
-    s2 = s2.wrapping_add(vs2_acc);
 
     (s1, s2)
 }
@@ -399,7 +382,11 @@ pub unsafe fn filter_paeth_neon(row: &[u8], prev_row: &[u8], bpp: usize, output:
 /// Compute Paeth predictor for 16 bytes using NEON.
 #[inline]
 #[target_feature(enable = "neon")]
-unsafe fn paeth_predict_neon(left: uint8x16_t, above: uint8x16_t, upper_left: uint8x16_t) -> uint8x16_t {
+unsafe fn paeth_predict_neon(
+    left: uint8x16_t,
+    above: uint8x16_t,
+    upper_left: uint8x16_t,
+) -> uint8x16_t {
     // Widen to i16 to avoid overflow in p = a + b - c
     let a_lo = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(left)));
     let a_hi = vreinterpretq_s16_u16(vmovl_high_u8(left));
@@ -439,11 +426,17 @@ unsafe fn paeth_predict_neon(left: uint8x16_t, above: uint8x16_t, upper_left: ui
     let c_hi_u16 = vreinterpretq_u16_s16(c_hi);
 
     let result_lo = vorrq_u16(
-        vorrq_u16(vandq_u16(a_lo_u16, mask_a_lo), vandq_u16(b_lo_u16, mask_b_lo)),
+        vorrq_u16(
+            vandq_u16(a_lo_u16, mask_a_lo),
+            vandq_u16(b_lo_u16, mask_b_lo),
+        ),
         vandq_u16(c_lo_u16, vmvnq_u16(vorrq_u16(mask_a_lo, mask_b_lo))),
     );
     let result_hi = vorrq_u16(
-        vorrq_u16(vandq_u16(a_hi_u16, mask_a_hi), vandq_u16(b_hi_u16, mask_b_hi)),
+        vorrq_u16(
+            vandq_u16(a_hi_u16, mask_a_hi),
+            vandq_u16(b_hi_u16, mask_b_hi),
+        ),
         vandq_u16(c_hi_u16, vmvnq_u16(vorrq_u16(mask_a_hi, mask_b_hi))),
     );
 
@@ -466,7 +459,10 @@ mod tests {
         let scalar_result = fallback::adler32(&data);
         let neon_result = unsafe { adler32_neon(&data) };
 
-        assert_eq!(scalar_result, neon_result, "NEON Adler32 should match scalar");
+        assert_eq!(
+            scalar_result, neon_result,
+            "NEON Adler32 should match scalar"
+        );
     }
 
     #[test]
