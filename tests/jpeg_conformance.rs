@@ -128,6 +128,48 @@ fn test_jpeg_progressive_decodes_with_external_decoder() {
     assert_eq!(info.height as usize, height as usize);
     assert_eq!(decoded.len(), (width * height * 3) as usize);
 }
+
+/// Baseline vs progressive markers should be correct.
+#[test]
+fn test_jpeg_progressive_and_baseline_markers() {
+    let width = 8;
+    let height = 8;
+    let rgb = vec![128u8; width * height * 3];
+
+    // Baseline
+    let baseline_opts = jpeg::JpegOptions::fast(80);
+    let baseline = jpeg::encode_with_options(
+        &rgb,
+        width as u32,
+        height as u32,
+        ColorType::Rgb,
+        &baseline_opts,
+    )
+    .unwrap();
+    assert!(
+        baseline.windows(2).any(|w| w == &[0xFF, 0xC0]),
+        "baseline SOF0 missing"
+    );
+    assert!(
+        !baseline.windows(2).any(|w| w == &[0xFF, 0xC2]),
+        "baseline should not contain SOF2"
+    );
+
+    // Progressive
+    let progressive_opts = jpeg::JpegOptions::max(80);
+    let progressive = jpeg::encode_with_options(
+        &rgb,
+        width as u32,
+        height as u32,
+        ColorType::Rgb,
+        &progressive_opts,
+    )
+    .unwrap();
+    assert!(
+        progressive.windows(2).any(|w| w == &[0xFF, 0xC2]),
+        "progressive SOF2 missing"
+    );
+}
 /// Test different image sizes.
 #[test]
 fn test_various_sizes() {
