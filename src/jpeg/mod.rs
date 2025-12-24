@@ -48,7 +48,6 @@ const SOS: u16 = 0xFFDA; // Start of Scan
 ///
 /// # Returns
 /// Complete JPEG file as bytes.
-#[must_use]
 pub fn encode(data: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>> {
     let options = JpegOptions::fast(quality);
     let mut output = Vec::new();
@@ -57,7 +56,6 @@ pub fn encode(data: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u
 }
 
 /// Encode raw pixel data as JPEG with specified color type.
-#[must_use]
 pub fn encode_with_color(
     data: &[u8],
     width: u32,
@@ -164,45 +162,43 @@ impl JpegOptions {
 }
 
 /// Builder for [`JpegOptions`] to reduce boolean argument noise.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct JpegOptionsBuilder {
     options: JpegOptions,
 }
 
-impl Default for JpegOptionsBuilder {
-    fn default() -> Self {
-        Self {
-            options: JpegOptions::default(),
-        }
-    }
-}
-
 impl JpegOptionsBuilder {
+    /// Set quality (1-100).
     pub fn quality(mut self, quality: u8) -> Self {
         self.options.quality = quality;
         self
     }
 
+    /// Set chroma subsampling.
     pub fn subsampling(mut self, subsampling: Subsampling) -> Self {
         self.options.subsampling = subsampling;
         self
     }
 
+    /// Set restart interval in MCUs (None disables restarts).
     pub fn restart_interval(mut self, interval: Option<u16>) -> Self {
         self.options.restart_interval = interval;
         self
     }
 
+    /// Enable or disable optimized Huffman tables.
     pub fn optimize_huffman(mut self, value: bool) -> Self {
         self.options.optimize_huffman = value;
         self
     }
 
+    /// Enable or disable progressive JPEG encoding.
     pub fn progressive(mut self, value: bool) -> Self {
         self.options.progressive = value;
         self
     }
 
+    /// Enable or disable trellis quantization.
     pub fn trellis_quant(mut self, value: bool) -> Self {
         self.options.trellis_quant = value;
         self
@@ -214,6 +210,7 @@ impl JpegOptionsBuilder {
         self
     }
 
+    /// Finish building `JpegOptions`.
     #[must_use]
     pub fn build(self) -> JpegOptions {
         self.options
@@ -231,7 +228,6 @@ impl JpegOptionsBuilder {
 ///
 /// # Returns
 /// Complete JPEG file as bytes.
-#[must_use]
 pub fn encode_with_options(
     data: &[u8],
     width: u32,

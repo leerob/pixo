@@ -865,7 +865,6 @@ pub fn deflate_optimal_split_zlib(data: &[u8], iterations: usize, max_blocks: us
 
 /// Compress data using DEFLATE algorithm with packed tokens, returning stats.
 #[cfg(feature = "timing")]
-#[must_use]
 pub fn deflate_packed_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
     if data.is_empty() {
         return (
@@ -1111,7 +1110,6 @@ impl Deflater {
 ///
 /// This leaves the main `deflate` fast path unchanged; callers opt-in to the
 /// additional instrumentation by using this entrypoint.
-#[must_use]
 pub fn deflate_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
     if data.is_empty() {
         return (
@@ -1206,7 +1204,6 @@ fn deflate_zlib_stored(data: &[u8], level: u8) -> Vec<u8> {
 }
 
 /// Compress data using DEFLATE in a zlib container, returning encoded bytes plus stats.
-#[must_use]
 pub fn deflate_zlib_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
     // Empty input mirrors `deflate_zlib`
     if data.is_empty() {
@@ -1254,7 +1251,6 @@ pub fn deflate_zlib_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats
 
 /// Compress data with packed tokens into a zlib container, returning stats.
 #[cfg(feature = "timing")]
-#[must_use]
 pub fn deflate_zlib_packed_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
     if data.is_empty() {
         return (
