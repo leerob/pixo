@@ -96,6 +96,38 @@ fn test_jpeg_restart_interval_decodes_with_external_decoder() {
     // jpeg-decoder outputs RGB24 by default
     assert_eq!(decoded.len(), (width * height * 3) as usize);
 }
+
+/// Progressive JPEG should decode with jpeg-decoder.
+#[test]
+fn test_jpeg_progressive_decodes_with_external_decoder() {
+    use jpeg_decoder::Decoder;
+    use std::io::Cursor;
+
+    let width = 16;
+    let height = 12;
+    let mut rng = StdRng::seed_from_u64(9999);
+    let mut rgb = vec![0u8; (width * height * 3) as usize];
+    rng.fill(rgb.as_mut_slice());
+
+    let opts = jpeg::JpegOptions {
+        quality: 85,
+        subsampling: jpeg::Subsampling::S444,
+        restart_interval: None,
+        optimize_huffman: true,
+        progressive: true,
+        trellis_quant: false,
+    };
+
+    let jpeg_bytes = jpeg::encode_with_options(&rgb, width, height, ColorType::Rgb, &opts).unwrap();
+
+    let mut decoder = Decoder::new(Cursor::new(jpeg_bytes));
+    let decoded = decoder.decode().expect("decode progressive JPEG");
+    let info = decoder.info().expect("decoder info");
+
+    assert_eq!(info.width as usize, width as usize);
+    assert_eq!(info.height as usize, height as usize);
+    assert_eq!(decoded.len(), (width * height * 3) as usize);
+}
 /// Test different image sizes.
 #[test]
 fn test_various_sizes() {

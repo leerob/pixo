@@ -2340,4 +2340,27 @@ mod tests {
             "expected CompressionError for tRNS longer than palette"
         );
     }
+
+    #[test]
+    fn test_quantization_force_produces_indexed() {
+        // Force quantization on an RGB image and verify output color type is palette (3)
+        let data = vec![
+            255, 0, 0, // red
+            0, 255, 0, // green
+            0, 0, 255, // blue
+            255, 255, 0, // yellow
+        ];
+        let mut options = PngOptions::default();
+        options.quantization = QuantizationOptions {
+            mode: QuantizationMode::Force,
+            max_colors: 4,
+            dithering: false,
+        };
+
+        let png = encode_with_options(&data, 2, 2, ColorType::Rgb, &options).unwrap();
+        assert_eq!(
+            png[25], 3,
+            "color type should be palette (3) after quantization"
+        );
+    }
 }
