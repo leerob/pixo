@@ -159,8 +159,7 @@ mod tests {
 
     #[test]
     fn test_error_is_error_trait() {
-        let err: Box<dyn std::error::Error> =
-            Box::new(Error::InvalidQuality(0));
+        let err: Box<dyn std::error::Error> = Box::new(Error::InvalidQuality(0));
         assert!(err.to_string().contains("Invalid quality"));
     }
 

@@ -445,7 +445,11 @@ mod tests {
         let codes = build_codes(&freqs, 7);
         for code in &codes {
             if code.length > 0 {
-                assert!(code.length <= 7, "code length {} exceeds max 7", code.length);
+                assert!(
+                    code.length <= 7,
+                    "code length {} exceeds max 7",
+                    code.length
+                );
             }
         }
     }
