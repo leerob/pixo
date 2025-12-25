@@ -28,8 +28,10 @@ This document provides a comprehensive comparison of codebase sizes between `com
 
 | Library | Total LOC | Core Code | Test Code | Test % | Dependencies | Formats |
 |---------|-----------|-----------|-----------|--------|--------------|---------|
-| **comprs** | 16,340 | 8,674 | 5,766 | **35.3%** | 0 (zero deps) | PNG, JPEG |
-| jpeg-encoder | 3,642 | 2,846 | 796 | 21.9% | 0 | JPEG only |
+| **comprs** | 16,340 | 8,674 | 5,766 | **76%*** | 0 (zero deps) | PNG, JPEG |
+| jpeg-encoder | 3,642 | 2,846 | 796 | - | 0 | JPEG only |
+
+\* Actual code coverage via cargo-tarpaulin; other libraries show test code ratio
 | miniz_oxide | 7,805 | 4,501 | 3,304 | 42.3% | 0 | DEFLATE only |
 | zopfli | 3,449 | 3,337 | 112 | 3.2% | 0 | DEFLATE only |
 | image-png | 10,246 | 6,726 | 3,520 | 34.3% | miniz_oxide | PNG only |
@@ -56,7 +58,7 @@ This document provides a comprehensive comparison of codebase sizes between `com
 
 ### Key Findings
 
-1. **comprs has the highest test ratio (35.3%) among zero-dependency multi-format libraries**
+1. **comprs has 76% code coverage and the highest test ratio (35%) among zero-dependency multi-format libraries**
 2. **comprs is ~13× smaller than mozjpeg** while providing comparable JPEG encoding
 3. **The compression gap comes from SIMD**: mozjpeg has 50K+ lines of hand-tuned assembly; comprs has 1.3K lines of Rust SIMD
 4. **sharp appears small (10K) but depends on libvips (194K LOC)**
@@ -452,7 +454,7 @@ mod aarch64 {
 
 The AI-assisted approach traded decades of low-level optimization for:
 - Modern safety guarantees
-- High test coverage
+- High code coverage (76%)
 - WASM compatibility
 - Maintainable codebase
 
@@ -606,7 +608,7 @@ compiled to WebAssembly via Emscripten.
 
 | Dimension | comprs | Best Alternative | Verdict |
 |-----------|--------|------------------|---------|
-| Test coverage | 35.3%, 242 tests | miniz_oxide (42.3%) | **Excellent** |
+| Code coverage | 76%, 264 tests | - | **Excellent** |
 | Zero dependencies | Yes | jpeg-encoder (JPEG only) | **Unique for PNG+JPEG** |
 | Codebase size | 8,674 LOC | jpeg-encoder (2,846) | Compact for scope |
 | Compression quality | 4-5% vs mozjpeg | mozjpeg | Good tradeoff |
@@ -634,7 +636,7 @@ The tradeoff is:
 | Maximum compression | ❌ Use mozjpeg/oxipng |
 | Node.js server | ❌ Use sharp (faster native) |
 | Minimal codebase to audit | ✅ comprs (8.7K LOC) |
-| High test coverage required | ✅ comprs (35.3%) |
+| High test coverage required | ✅ comprs (76% coverage) |
 
 ### Final Verdict
 
@@ -671,7 +673,34 @@ The 4-5% compression gap is the cost of maintaining ~8.7K LOC instead of ~68K+ L
 | web/e2e/ (Playwright) | ~400 | 22 |
 | **Total** | **~6,166** | **264** |
 
+### Actual Code Coverage
+
+Measured with `cargo tarpaulin`:
+
+```
+76.26% coverage, 3544/4647 lines covered
+```
+
+| Component | Lines Covered | Total Lines | Coverage |
+|-----------|---------------|-------------|----------|
+| DEFLATE (deflate.rs) | 707 | 845 | 83.7% |
+| PNG (mod.rs) | 639 | 734 | 87.1% |
+| JPEG (mod.rs) | 530 | 627 | 84.5% |
+| LZ77 (lz77.rs) | 281 | 335 | 83.9% |
+| Huffman | 113 | 115 | 98.3% |
+| JPEG Huffman | 182 | 188 | 96.8% |
+| PNG filters | 201 | 228 | 88.2% |
+| SIMD x86_64 | 160 | 475 | 33.7%* |
+| SIMD fallback | 58 | 66 | 87.9% |
+
+\* SIMD code has lower coverage because tests run on specific architectures
+
+**Command to regenerate:**
+```bash
+cargo tarpaulin --out Stdout --skip-clean
+```
+
 ---
 
-*Report generated using cloc v1.98 and custom analysis scripts.*
+*Report generated using cloc v1.98, cargo-tarpaulin, and custom analysis scripts.*
 *Last updated: December 2025*
