@@ -80,3 +80,11 @@ strip = true            # Strip symbols from binary
 panic = "unwind"
 lto = false             # Faster compilation for benchmarks
 opt-level = 3           # Optimize for speed, not size
+
+[lints.rust]
+missing_docs = "allow"
+unknown_lints = "allow"
+
+[lints.clippy]
+needless_range_loop = "allow"
+manual_is_multiple_of = "allow"
