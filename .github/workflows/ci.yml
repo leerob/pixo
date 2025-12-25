@@ -99,7 +99,7 @@ jobs:
           tool: wasm-bindgen-cli
 
       - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown --release --features wasm
+        run: cargo build --target wasm32-unknown-unknown --release --no-default-features --features wasm,simd
 
       - name: Generate JS bindings
         run: |
@@ -117,7 +117,8 @@ jobs:
 
       - name: Optimize WASM
         run: |
-          wasm-opt -Oz --enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int \
+          wasm-opt -Oz --strip-debug --strip-dwarf --strip-producers --strip-target-features \
+            --enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int \
             -o ./web/src/lib/comprs-wasm/comprs_bg.wasm \
             ./web/src/lib/comprs-wasm/comprs_bg.wasm
 

@@ -29,13 +29,19 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli
 
 # Build the WASM module
-cargo build --target wasm32-unknown-unknown --release --features wasm
+cargo build --target wasm32-unknown-unknown --release --no-default-features --features wasm,simd
 
 # Generate JS bindings (output to web/src/lib/comprs-wasm/)
 wasm-bindgen --target web \
   --out-dir web/src/lib/comprs-wasm \
   --out-name comprs \
   target/wasm32-unknown-unknown/release/comprs.wasm
+
+# (Optional but recommended) Optimize with binaryen for minimal size
+wasm-opt -Oz --strip-debug --strip-dwarf --strip-producers --strip-target-features \
+  --enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int \
+  -o web/src/lib/comprs-wasm/comprs_bg.wasm \
+  web/src/lib/comprs-wasm/comprs_bg.wasm
 ```
 
 ## Troubleshooting
@@ -55,3 +61,5 @@ RUSTC=~/.cargo/bin/rustc cargo build --target wasm32-unknown-unknown --release -
 ## Binary Size
 
 The WASM binary is **236 KB** with full PNG and JPEG support. See [benchmarks](../benches/BENCHMARKS.md#4-wasm-binary-size-comparison) for comparisons with other libraries.
+With the size-focused build (`--no-default-features --features wasm,simd`) and
+binaryen optimization, the binary shrinks to **~135 KB** without sacrificing PNG/JPEG functionality.

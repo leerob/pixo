@@ -65,11 +65,26 @@ function removeGitIgnore() {
 	}
 }
 
+function findWasmOpt() {
+	const fromPath = findOnPath('wasm-opt');
+	if (fromPath) return fromPath;
+	console.warn('[wasm:build] wasm-opt not found on PATH; skipping optimization step.');
+	return null;
+}
+
 try {
 	console.log('[wasm:build] Building Rust crate (wasm32-unknown-unknown, release)...');
 	execFileSync(
 		'cargo',
-		['build', '--target', 'wasm32-unknown-unknown', '--release', '--features', 'wasm'],
+		[
+			'build',
+			'--target',
+			'wasm32-unknown-unknown',
+			'--release',
+			'--no-default-features',
+			'--features',
+			'wasm,simd',
+		],
 		{ cwd: workspaceRoot, stdio: 'inherit' }
 	);
 
@@ -89,7 +104,33 @@ try {
 		formatError('Build finished, but output files are missing.');
 	}
 
-	const wasmSize = statSync(join(outDir, 'comprs_bg.wasm')).size;
+	const wasmFile = join(outDir, 'comprs_bg.wasm');
+	const wasmOpt = findWasmOpt();
+	if (wasmOpt) {
+		const pre = statSync(wasmFile).size;
+		console.log('[wasm:build] Running wasm-opt -Oz (strip debug/producers/target-features)...');
+		execFileSync(
+			wasmOpt,
+			[
+				'-Oz',
+				'--strip-debug',
+				'--strip-dwarf',
+				'--strip-producers',
+				'--strip-target-features',
+				'--enable-bulk-memory',
+				'--enable-sign-ext',
+				'--enable-nontrapping-float-to-int',
+				'-o',
+				wasmFile,
+				wasmFile,
+			],
+			{ cwd: workspaceRoot, stdio: 'inherit' }
+		);
+		const post = statSync(wasmFile).size;
+		console.log(`[wasm:build] wasm-opt reduced size ${pre} -> ${post} bytes.`);
+	}
+
+	const wasmSize = statSync(wasmFile).size;
 	console.log(`[wasm:build] Done. Emitted ${wasmSize} bytes of wasm to ${outDir}.`);
 } catch (err) {
 	formatError(err instanceof Error ? err.message : String(err));

@@ -37,6 +37,11 @@
 //! const jpegBytes = encodeJpeg(rgb, width, height, 2, 85, 1, true);
 //! ```
 
+// Use talc allocator for WASM - smaller binary and proper memory management.
+#[cfg(all(target_arch = "wasm32", feature = "wasm"))]
+#[global_allocator]
+static ALLOC: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
+
 use wasm_bindgen::prelude::*;
 
 use crate::color::ColorType;

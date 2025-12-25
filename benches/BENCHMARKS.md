@@ -151,7 +151,7 @@ Critical for web applications where bundle size impacts load time.
 
 | Library         | WASM Size  | Notes                               |
 | --------------- | ---------- | ----------------------------------- |
-| **comprs**      | **236 KB**| Zero deps, pure Rust, lossy PNG [1] |
+| **comprs**      | **135 KB** | Zero deps, pure Rust, lossy PNG [1] |
 | wasm-mozjpeg    | ~208 KB    | Emscripten compiled                 |
 | squoosh oxipng  | ~625 KB    | Google's Squoosh codec              |
 | squoosh mozjpeg | ~803 KB    | Google's Squoosh codec              |
@@ -168,6 +168,17 @@ opt-level = "z"      # Optimize for size
 codegen-units = 1    # Single codegen unit
 panic = "abort"      # Remove unwinding code
 strip = true         # Strip symbols
+```
+
+Build command for the 135 KB binary:
+
+```bash
+cargo build --target wasm32-unknown-unknown --release --no-default-features --features wasm,simd
+wasm-bindgen --target web --out-dir web/src/lib/comprs-wasm --out-name comprs target/wasm32-unknown-unknown/release/comprs.wasm
+wasm-opt -Oz --strip-debug --strip-dwarf --strip-producers --strip-target-features \
+  --enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int \
+  -o web/src/lib/comprs-wasm/comprs_bg.wasm \
+  web/src/lib/comprs-wasm/comprs_bg.wasm
 ```
 
 ---
