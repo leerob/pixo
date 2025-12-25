@@ -1334,11 +1334,7 @@ fn encode_scan(
         if let Some(interval) = restart_interval {
             // Only write restart marker if there are more MCUs to follow.
             // Skip the marker after the final MCU to avoid redundant bytes.
-            if interval > 0
-                && interval as u32 != 0
-                && mcu_count % interval as u32 == 0
-                && mcu_count < total_mcus
-            {
+            if interval > 0 && mcu_count < total_mcus && is_multiple(mcu_count, interval as u32) {
                 writer.flush();
                 writer.write_bytes(&[0xFF, 0xD0 + (*rst_idx & 0x07)]);
                 *rst_idx = (*rst_idx + 1) & 0x07;
@@ -1348,6 +1344,13 @@ fn encode_scan(
             }
         }
     };
+
+    #[inline]
+    fn is_multiple(dividend: u32, divisor: u32) -> bool {
+        dividend
+            .checked_rem(divisor)
+            .map_or(false, |remainder| remainder == 0)
+    }
 
     // Process blocks
     match (color_type, subsampling) {
