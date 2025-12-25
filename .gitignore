@@ -76,3 +76,6 @@ test-results/
 tests/fuzz/corpus/
 tests/fuzz/artifacts/
 tests/fuzz/target/
+
+# Analysis repos (for codebase size comparison)
+.analysis-repos/
