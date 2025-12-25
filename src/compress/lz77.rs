@@ -899,7 +899,7 @@ impl Lz77Compressor {
                 // Defensive: distance must be at least 1; otherwise treat as literal.
                 if dist == 0 {
                     tokens.push(Token::Literal(data[data_pos]));
-                    data_pos += 1;
+                    data_pos += len;
                     continue;
                 }
                 // Match
@@ -1571,6 +1571,62 @@ mod tests {
                     len,
                     min_len
                 );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod trace_backwards_tests {
+    use super::*;
+
+    #[test]
+    fn test_trace_backwards_zero_distance_match_multibyte() {
+        let compressor = Lz77Compressor::new(6);
+
+        // Create DP arrays representing:
+        // - Token 1: length=5 ending at position 5 (covers bytes 0-4), distance=0 (invalid match)
+        // - Token 2: length=2 ending at position 7 (covers bytes 5-6), distance=0 (invalid match)
+        // Total: 7 bytes of input data
+        //
+        // The DP arrays are indexed by end position (0 to n inclusive).
+        // length_array[i] = length of token ending at position i
+        // dist_array[i] = distance for that token (0 for literals or invalid matches)
+        let length_array = vec![0u16, 0, 0, 0, 0, 5, 0, 2];
+        let dist_array = vec![0u16, 0, 0, 0, 0, 0, 0, 0];
+
+        let data = b"abcdefg"; // 7 bytes
+
+        let tokens = compressor.trace_backwards(&length_array, &dist_array, data);
+
+        // With the bug:
+        // - Token (5, 0): emits literal 'a', data_pos += 1 (should be += 5)
+        // - Token (2, 0): emits literal 'b', data_pos += 1 (should be += 2)
+        // Result: 2 tokens producing 2 bytes
+        //
+        // Without the bug:
+        // - Token (5, 0): emits literal 'a', data_pos += 5
+        // - Token (2, 0): emits literal 'f', data_pos += 2
+        // Result: 2 tokens producing 2 bytes, but from correct positions
+
+        // The bug causes data_pos to be incorrect, so subsequent literals read wrong bytes.
+        // With bug: tokens are [Literal('a'), Literal('b')]
+        // Without bug: tokens are [Literal('a'), Literal('f')]
+
+        assert_eq!(tokens.len(), 2, "Should produce 2 tokens");
+
+        // Verify the second token reads from the correct position (byte 5 = 'f', not byte 1 = 'b')
+        match tokens[1] {
+            Token::Literal(b) => {
+                assert_eq!(
+                    b, b'f',
+                    "Second literal should be 'f' (byte at position 5), got '{}'. \
+                     This indicates data_pos was not advanced correctly.",
+                    b as char
+                );
+            }
+            Token::Match { .. } => {
+                panic!("Expected literal, got match");
             }
         }
     }
