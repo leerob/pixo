@@ -428,7 +428,7 @@ fn expand_gray(data: &[u8], width: usize, height: usize, bit_depth: u8) -> Resul
             let byte = row[idx];
             let remaining = 8 - bit_pos;
             let take = bits.min(remaining);
-            let mask = ((1u8 << take) - 1) << (remaining - take);
+            let mask = (((1u16 << take) - 1) << (remaining - take)) as u8;
             let sample = (byte & mask) >> (remaining - take);
             let value = scale_sample(sample, bits as u8);
             out.push(value);
@@ -474,7 +474,7 @@ fn expand_palette(
             let byte = row[idx];
             let remaining = 8 - bit_pos;
             let take = bits.min(remaining);
-            let mask = ((1u8 << take) - 1) << (remaining - take);
+            let mask = (((1u16 << take) - 1) << (remaining - take)) as u8;
             let sample = (byte & mask) >> (remaining - take);
             indices.push(sample as usize);
             bit_pos += take;
@@ -533,6 +533,19 @@ fn scale_sample(sample: u8, bits: u8) -> u8 {
 mod tests {
     use super::*;
     use crate::png;
+
+    fn recompute_ihdr_crc(png_bytes: &mut [u8]) {
+        // Assumes IHDR is first chunk immediately after signature.
+        let ihdr_type_start = 8 + 4; // length + type start
+        let ihdr_data_start = ihdr_type_start + 4;
+        let ihdr_data_end = ihdr_data_start + 13;
+        let crc_start = ihdr_data_end;
+        let mut payload = Vec::with_capacity(4 + 13);
+        payload.extend_from_slice(&png_bytes[ihdr_type_start..ihdr_type_start + 4]); // "IHDR"
+        payload.extend_from_slice(&png_bytes[ihdr_data_start..ihdr_data_end]);
+        let crc = crate::compress::crc32::crc32(&payload).to_be_bytes();
+        png_bytes[crc_start..crc_start + 4].copy_from_slice(&crc);
+    }
 
     fn encode_then_decode(data: &[u8], width: u32, height: u32, ct: ColorType) -> DecodedPng {
         let encoded = png::encode(data, width, height, ct).expect("encode");
@@ -601,17 +614,39 @@ mod tests {
         let mut png_bytes = png::encode(&pixels, 1, 1, ColorType::Rgb).unwrap();
         // IHDR interlace byte is the last byte of IHDR data (offset 28)
         png_bytes[28] = 1;
-        // Recompute IHDR CRC (type+data)
-        let ihdr_chunk_start = 8; // after signature
-        let ihdr_type_start = ihdr_chunk_start + 4;
-        let ihdr_data_start = ihdr_type_start + 4;
-        let ihdr_data_end = ihdr_data_start + 13;
-        let crc_start = ihdr_data_end;
-        let mut payload = Vec::with_capacity(4 + 13);
-        payload.extend_from_slice(&png_bytes[ihdr_type_start..ihdr_type_start + 4]); // "IHDR"
-        payload.extend_from_slice(&png_bytes[ihdr_data_start..ihdr_data_end]);
-        let crc = crate::compress::crc32::crc32(&payload).to_be_bytes();
-        png_bytes[crc_start..crc_start + 4].copy_from_slice(&crc);
+        recompute_ihdr_crc(&mut png_bytes);
+        let err = png::decode(&png_bytes).unwrap_err();
+        assert!(matches!(err, Error::UnsupportedDecode(_)));
+    }
+
+    #[test]
+    fn rejects_bad_crc() {
+        let pixels = vec![0u8, 0, 0];
+        let mut png_bytes = png::encode(&pixels, 1, 1, ColorType::Rgb).unwrap();
+        // Corrupt IHDR CRC (last byte) so CRC check fails
+        let ihdr_crc_pos = 8 + 4 + 4 + 13; // sig + len + type + data
+        if ihdr_crc_pos + 4 <= png_bytes.len() {
+            png_bytes[ihdr_crc_pos + 3] ^= 0xFF;
+        }
+        let err = png::decode(&png_bytes).unwrap_err();
+        assert!(matches!(err, Error::InvalidDecode(_)));
+    }
+
+    #[test]
+    fn rejects_palette_index_out_of_range() {
+        // Build palette image with 1 palette entry but data index=1
+        let encoded = png::encode_indexed(&[1u8], 1, 1, &[[0, 0, 0]], None).unwrap();
+        let err = png::decode(&encoded).unwrap_err();
+        assert!(matches!(err, Error::InvalidDecode(_)));
+    }
+
+    #[test]
+    fn rejects_16bit_bit_depth() {
+        let pixels = vec![255u8, 0, 0];
+        let mut png_bytes = png::encode(&pixels, 1, 1, ColorType::Rgb).unwrap();
+        // Set bit depth to 16 (offset 24) and fix CRC
+        png_bytes[24] = 16;
+        recompute_ihdr_crc(&mut png_bytes);
         let err = png::decode(&png_bytes).unwrap_err();
         assert!(matches!(err, Error::UnsupportedDecode(_)));
     }
