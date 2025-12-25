@@ -147,11 +147,11 @@ fn test_jpeg_progressive_and_baseline_markers() {
     )
     .unwrap();
     assert!(
-        baseline.windows(2).any(|w| w == &[0xFF, 0xC0]),
+        baseline.windows(2).any(|w| w == [0xFF, 0xC0]),
         "baseline SOF0 missing"
     );
     assert!(
-        !baseline.windows(2).any(|w| w == &[0xFF, 0xC2]),
+        !baseline.windows(2).any(|w| w == [0xFF, 0xC2]),
         "baseline should not contain SOF2"
     );
 
@@ -166,7 +166,7 @@ fn test_jpeg_progressive_and_baseline_markers() {
     )
     .unwrap();
     assert!(
-        progressive.windows(2).any(|w| w == &[0xFF, 0xC2]),
+        progressive.windows(2).any(|w| w == [0xFF, 0xC2]),
         "progressive SOF2 missing"
     );
 }

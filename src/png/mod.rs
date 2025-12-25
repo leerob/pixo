@@ -2385,11 +2385,13 @@ mod tests {
             0, 0, 255, // blue
             255, 255, 0, // yellow
         ];
-        let mut options = PngOptions::default();
-        options.quantization = QuantizationOptions {
-            mode: QuantizationMode::Force,
-            max_colors: 4,
-            dithering: false,
+        let options = PngOptions {
+            quantization: QuantizationOptions {
+                mode: QuantizationMode::Force,
+                max_colors: 4,
+                dithering: false,
+            },
+            ..PngOptions::default()
         };
 
         let png = encode_with_options(&data, 2, 2, ColorType::Rgb, &options).unwrap();
@@ -2407,11 +2409,13 @@ mod tests {
             255, 0, 0, 0, // transparent red
             0, 255, 0, 255, // opaque green
         ];
-        let mut options = PngOptions::default();
-        options.quantization = QuantizationOptions {
-            mode: QuantizationMode::Force,
-            max_colors: 256,
-            dithering: false,
+        let options = PngOptions {
+            quantization: QuantizationOptions {
+                mode: QuantizationMode::Force,
+                max_colors: 256,
+                dithering: false,
+            },
+            ..PngOptions::default()
         };
 
         let png = encode_with_options(&data, 2, 1, ColorType::Rgba, &options).unwrap();
@@ -2439,7 +2443,7 @@ mod tests {
 
         let (_, trns_len) = find_chunk(&png, b"tRNS").expect("tRNS missing");
         assert!(
-            trns_len <= 2 && trns_len >= 1,
+            (1..=2).contains(&trns_len),
             "tRNS length should be 1..=2, got {trns_len}"
         );
     }
