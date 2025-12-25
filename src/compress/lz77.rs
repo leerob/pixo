@@ -565,7 +565,12 @@ impl Lz77Compressor {
             chain_remaining -= 1;
         }
 
-        if best_length >= MIN_MATCH_LENGTH {
+        // A valid match requires both sufficient length AND a non-zero distance.
+        // When min_match_length > MIN_MATCH_LENGTH, best_length is initialized to
+        // min_match_length - 1, which can equal MIN_MATCH_LENGTH. If no match is found,
+        // best_distance remains 0, so we must check both conditions to avoid returning
+        // an invalid (length, 0) match.
+        if best_length >= MIN_MATCH_LENGTH && best_distance > 0 {
             Some((best_length, best_distance))
         } else {
             None
@@ -625,7 +630,9 @@ impl Lz77Compressor {
             }
         }
 
-        if best_len >= MIN_MATCH_LENGTH {
+        // A valid match requires both sufficient length AND a non-zero distance.
+        // See find_best_match for detailed explanation of this invariant.
+        if best_len >= MIN_MATCH_LENGTH && best_dist > 0 {
             Some((best_len, best_dist))
         } else {
             None
@@ -1413,5 +1420,50 @@ mod tests {
         // Test larger distances (bit manipulation)
         assert_eq!(distance_to_symbol(5), (4, 1));
         assert_eq!(distance_to_symbol(6), (4, 1));
+    }
+
+    #[test]
+    fn test_find_best_match_no_zero_distance() {
+        // Regression test: find_best_match should never return distance=0
+        // This bug manifests when min_match_length > MIN_MATCH_LENGTH and no match is found.
+        // The best_length would be initialized to min_match_length - 1 (e.g., 3) while
+        // best_distance stays at 0, causing an invalid (3, 0) match to be returned.
+        let mut compressor = Lz77Compressor::new(6);
+
+        // Create high-entropy data to trigger min_match_length > 3
+        let mut unique_data: Vec<u8> = (0..=255).collect();
+        unique_data.extend_from_slice(b"xyz"); // Short unrepeated sequence at end
+
+        let result = compressor.compress(&unique_data);
+
+        // Verify no zero-distance matches in result
+        for token in &result {
+            if let Token::Match { distance, .. } = token {
+                assert!(
+                    *distance > 0,
+                    "Found invalid match with distance 0"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_find_best_match_returns_none_for_no_match() {
+        // Direct test of find_best_match with min_match_length > MIN_MATCH_LENGTH
+        let compressor = Lz77Compressor::new(6);
+
+        // Data with no possible matches (all unique bytes, too short for matches)
+        let data: Vec<u8> = (0..10).collect();
+
+        // With min_match_length = 4, best_length is initialized to 3
+        // If no match is found, it should return None, not Some((3, 0))
+        let result = compressor.find_best_match(&data, 5, 128, 65, 4);
+
+        // Should be None since there's no valid match
+        assert!(
+            result.is_none() || result.unwrap().1 > 0,
+            "find_best_match returned invalid match with distance 0: {:?}",
+            result
+        );
     }
 }
