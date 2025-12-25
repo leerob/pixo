@@ -919,3 +919,268 @@ fn format_size(bytes: u64) -> String {
         format!("{bytes} B")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    // ===== format_size tests =====
+
+    #[test]
+    fn test_format_size_bytes() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(1), "1 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1023), "1023 B");
+    }
+
+    #[test]
+    fn test_format_size_kilobytes() {
+        assert_eq!(format_size(1024), "1.00 KB");
+        assert_eq!(format_size(1536), "1.50 KB");
+        assert_eq!(format_size(10240), "10.00 KB");
+        assert_eq!(format_size(1048575), "1024.00 KB");
+    }
+
+    #[test]
+    fn test_format_size_megabytes() {
+        assert_eq!(format_size(1048576), "1.00 MB");
+        assert_eq!(format_size(1572864), "1.50 MB");
+        assert_eq!(format_size(10485760), "10.00 MB");
+    }
+
+    // ===== to_grayscale tests =====
+
+    #[test]
+    fn test_to_grayscale_from_gray() {
+        let pixels = vec![100, 150, 200];
+        let result = to_grayscale(&pixels, ColorType::Gray);
+        assert_eq!(result, pixels); // Should be unchanged
+    }
+
+    #[test]
+    fn test_to_grayscale_from_gray_alpha() {
+        let pixels = vec![100, 255, 150, 128, 200, 64];
+        let result = to_grayscale(&pixels, ColorType::GrayAlpha);
+        assert_eq!(result, vec![100, 150, 200]); // Alpha stripped
+    }
+
+    #[test]
+    fn test_to_grayscale_from_rgb() {
+        // Pure red, green, blue
+        let pixels = vec![255, 0, 0, 0, 255, 0, 0, 0, 255];
+        let result = to_grayscale(&pixels, ColorType::Rgb);
+        assert_eq!(result.len(), 3);
+        // Check approximate values based on ITU-R BT.601 coefficients
+        assert!(result[0] > 70 && result[0] < 80); // Red contribution ~77
+        assert!(result[1] > 145 && result[1] < 155); // Green contribution ~150
+        assert!(result[2] > 25 && result[2] < 35); // Blue contribution ~29
+    }
+
+    #[test]
+    fn test_to_grayscale_from_rgba() {
+        let pixels = vec![255, 0, 0, 255, 0, 255, 0, 255]; // Red, Green with full alpha
+        let result = to_grayscale(&pixels, ColorType::Rgba);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_to_grayscale_white() {
+        // White should remain close to white
+        let pixels = vec![255, 255, 255];
+        let result = to_grayscale(&pixels, ColorType::Rgb);
+        assert_eq!(result[0], 255);
+    }
+
+    #[test]
+    fn test_to_grayscale_black() {
+        let pixels = vec![0, 0, 0];
+        let result = to_grayscale(&pixels, ColorType::Rgb);
+        assert_eq!(result[0], 0);
+    }
+
+    // ===== rgba_to_rgb tests =====
+
+    #[test]
+    fn test_rgba_to_rgb() {
+        let pixels = vec![255, 128, 64, 255, 0, 100, 200, 128];
+        let result = rgba_to_rgb(&pixels);
+        assert_eq!(result, vec![255, 128, 64, 0, 100, 200]);
+    }
+
+    #[test]
+    fn test_rgba_to_rgb_empty() {
+        let pixels: Vec<u8> = vec![];
+        let result = rgba_to_rgb(&pixels);
+        assert!(result.is_empty());
+    }
+
+    // ===== gray_alpha_to_gray tests =====
+
+    #[test]
+    fn test_gray_alpha_to_gray() {
+        let pixels = vec![100, 255, 150, 128, 200, 0];
+        let result = gray_alpha_to_gray(&pixels);
+        assert_eq!(result, vec![100, 150, 200]);
+    }
+
+    #[test]
+    fn test_gray_alpha_to_gray_empty() {
+        let pixels: Vec<u8> = vec![];
+        let result = gray_alpha_to_gray(&pixels);
+        assert!(result.is_empty());
+    }
+
+    // ===== detect_format_from_bytes tests =====
+
+    #[test]
+    fn test_detect_format_png() {
+        let png_header = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        assert_eq!(detect_format_from_bytes(&png_header).unwrap(), "png");
+    }
+
+    #[test]
+    fn test_detect_format_jpeg() {
+        let jpeg_header = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46];
+        assert_eq!(detect_format_from_bytes(&jpeg_header).unwrap(), "jpeg");
+    }
+
+    #[test]
+    fn test_detect_format_ppm() {
+        let ppm_header = b"P6\n10 10\n255\n".to_vec();
+        assert_eq!(detect_format_from_bytes(&ppm_header).unwrap(), "ppm");
+    }
+
+    #[test]
+    fn test_detect_format_pgm() {
+        let pgm_header = b"P5\n10 10\n255\n".to_vec();
+        assert_eq!(detect_format_from_bytes(&pgm_header).unwrap(), "pgm");
+    }
+
+    #[test]
+    fn test_detect_format_too_small() {
+        let small = vec![0x89, 0x50];
+        assert!(detect_format_from_bytes(&small).is_err());
+    }
+
+    #[test]
+    fn test_detect_format_unknown() {
+        let unknown = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+        assert!(detect_format_from_bytes(&unknown).is_err());
+    }
+
+    // ===== read_token tests =====
+
+    #[test]
+    fn test_read_token_simple() {
+        let data = b"hello world";
+        let mut reader = Cursor::new(data.as_slice());
+        let mut token = String::new();
+        read_token(&mut reader, &mut token).unwrap();
+        assert_eq!(token, "hello");
+    }
+
+    #[test]
+    fn test_read_token_with_leading_whitespace() {
+        let data = b"   hello";
+        let mut reader = Cursor::new(data.as_slice());
+        let mut token = String::new();
+        read_token(&mut reader, &mut token).unwrap();
+        assert_eq!(token, "hello");
+    }
+
+    #[test]
+    fn test_read_token_with_comment() {
+        let data = b"# this is a comment\nhello";
+        let mut reader = Cursor::new(data.as_slice());
+        let mut token = String::new();
+        read_token(&mut reader, &mut token).unwrap();
+        assert_eq!(token, "hello");
+    }
+
+    #[test]
+    fn test_read_token_multiple_tokens() {
+        let data = b"hello world foo";
+        let mut reader = Cursor::new(data.as_slice());
+        let mut token = String::new();
+
+        read_token(&mut reader, &mut token).unwrap();
+        assert_eq!(token, "hello");
+
+        token.clear();
+        read_token(&mut reader, &mut token).unwrap();
+        assert_eq!(token, "world");
+
+        token.clear();
+        read_token(&mut reader, &mut token).unwrap();
+        assert_eq!(token, "foo");
+    }
+
+    #[test]
+    fn test_read_token_numbers() {
+        let data = b"640 480 255";
+        let mut reader = Cursor::new(data.as_slice());
+        let mut token = String::new();
+
+        read_token(&mut reader, &mut token).unwrap();
+        assert_eq!(token.parse::<u32>().unwrap(), 640);
+
+        token.clear();
+        read_token(&mut reader, &mut token).unwrap();
+        assert_eq!(token.parse::<u32>().unwrap(), 480);
+    }
+
+    // ===== SubsamplingArg conversion tests =====
+
+    #[test]
+    fn test_subsampling_arg_to_subsampling() {
+        let s444: Subsampling = SubsamplingArg::S444.into();
+        assert!(matches!(s444, Subsampling::S444));
+
+        let s420: Subsampling = SubsamplingArg::S420.into();
+        assert!(matches!(s420, Subsampling::S420));
+    }
+
+    // ===== FilterArg conversion tests =====
+
+    #[test]
+    fn test_filter_arg_to_strategy() {
+        assert!(matches!(
+            FilterArg::None.to_strategy(),
+            FilterStrategy::None
+        ));
+        assert!(matches!(FilterArg::Sub.to_strategy(), FilterStrategy::Sub));
+        assert!(matches!(FilterArg::Up.to_strategy(), FilterStrategy::Up));
+        assert!(matches!(
+            FilterArg::Average.to_strategy(),
+            FilterStrategy::Average
+        ));
+        assert!(matches!(
+            FilterArg::Paeth.to_strategy(),
+            FilterStrategy::Paeth
+        ));
+        assert!(matches!(
+            FilterArg::Minsum.to_strategy(),
+            FilterStrategy::MinSum
+        ));
+        assert!(matches!(
+            FilterArg::Adaptive.to_strategy(),
+            FilterStrategy::Adaptive
+        ));
+        assert!(matches!(
+            FilterArg::AdaptiveFast.to_strategy(),
+            FilterStrategy::AdaptiveFast
+        ));
+    }
+
+    // ===== DecodedImage color type tests =====
+
+    #[test]
+    fn test_color_type_bytes_per_pixel() {
+        assert_eq!(ColorType::Gray.bytes_per_pixel(), 1);
+        assert_eq!(ColorType::GrayAlpha.bytes_per_pixel(), 2);
+        assert_eq!(ColorType::Rgb.bytes_per_pixel(), 3);
+        assert_eq!(ColorType::Rgba.bytes_per_pixel(), 4);
+    }
+}

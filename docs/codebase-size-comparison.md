@@ -238,7 +238,8 @@ Test Code: 5,766 LOC (35.3%)
 ├── tests/:            3,235 LOC
 └── benches/:          1,928 LOC
 
-#[test] functions: 242
+#[test] functions: 335
+CLI unit tests: 27
 Playwright e2e tests: 22
 Files with colocated tests: 18
 ```
@@ -425,7 +426,7 @@ mod aarch64 {
 
 | Library | LOC/Test | Interpretation |
 |---------|----------|----------------|
-| **comprs** | **54** | Well-tested |
+| **comprs** | **46** | Well-tested |
 | oxipng | 33 | Very well-tested (uses C deps) |
 | image | 116 | Less tested |
 | jpeg-encoder | 145 | Moderately tested |
@@ -559,7 +560,7 @@ compiled to WebAssembly via Emscripten.
 | Rank | Library | Test % | Tests | Notes |
 |------|---------|--------|-------|-------|
 | 1 | miniz_oxide | 42.3% | 61 | DEFLATE only |
-| 2 | **comprs** | **35.3%** | **242** | **PNG + JPEG, zero deps** |
+| 2 | **comprs** | **35.3%** | **357** | **PNG + JPEG, zero deps** |
 | 3 | image-png | 34.3% | 90 | PNG only |
 | 4 | flate2-rs | 28.3% | 62 | Wrapper |
 | 5 | jpeg-encoder | 21.9% | 29 | JPEG only |
@@ -571,7 +572,7 @@ compiled to WebAssembly via Emscripten.
 | Rank | Library | LOC/Test | Interpretation |
 |------|---------|----------|----------------|
 | 1 | oxipng | 33 | Excellent (C deps do heavy lifting) |
-| 2 | **comprs** | **54** | **Excellent (self-contained)** |
+| 2 | **comprs** | **46** | **Excellent (self-contained)** |
 | 3 | flate2-rs | 111 | Good |
 | 4 | image | 116 | Good |
 | 5 | jpeg-encoder | 145 | Moderate |
@@ -607,7 +608,7 @@ compiled to WebAssembly via Emscripten.
 | Dimension | comprs | Best Alternative | Verdict |
 |-----------|--------|------------------|---------|
 | Test code ratio | 35.3% (5,766 LOC) | miniz_oxide (42.3%) | **Excellent** |
-| Actual code coverage | 78% (3,622/4,639 lines) | - | **Excellent** |
+| Actual code coverage | 78% (3,625/4,639 lines) | - | **Excellent** |
 | Zero dependencies | Yes | jpeg-encoder (JPEG only) | **Unique for PNG+JPEG** |
 | Codebase size | 8,674 LOC | jpeg-encoder (2,846) | Compact for scope |
 | Compression quality | 4-5% vs mozjpeg | mozjpeg | Good tradeoff |
@@ -667,19 +668,20 @@ The 4-5% compression gap is the cost of maintaining ~8.7K LOC instead of ~68K+ L
 | Location | LOC | Tests |
 |----------|-----|-------|
 | src/ (colocated) | 2,900 | 225 |
+| src/bin/ (CLI) | ~400 | 27 |
 | tests/ | 3,400 | 83 |
 | benches/ | 1,928 | - |
 | web/e2e/ (Playwright) | ~400 | 22 |
-| **Total** | **~6,700** | **330** |
+| **Total** | **~7,100** | **357** |
 
-Note: Test counts include doctests and property-based tests.
+Note: Test counts include doctests, property-based tests, and CLI unit tests.
 
 ### Actual Code Coverage
 
 Measured with `cargo tarpaulin`:
 
 ```
-78.08% coverage, 3622/4639 lines covered
+78.14% coverage, 3625/4639 lines covered
 ```
 
 | Component | Lines Covered | Total Lines | Coverage |
