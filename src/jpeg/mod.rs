@@ -1347,9 +1347,7 @@ fn encode_scan(
 
     #[inline]
     fn is_multiple(dividend: u32, divisor: u32) -> bool {
-        dividend
-            .checked_rem(divisor)
-            .map_or(false, |remainder| remainder == 0)
+        dividend.checked_rem(divisor) == Some(0)
     }
 
     // Process blocks
