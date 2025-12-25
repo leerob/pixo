@@ -635,7 +635,7 @@ impl Lz77Compressor {
 
             let length = self.match_length(data, match_pos, pos);
 
-            if length >= MIN_MATCH_LENGTH {
+            if length >= MIN_MATCH_LENGTH && !(length == 3 && distance > 8192) {
                 // For each length from MIN_MATCH_LENGTH to length, if we haven't
                 // seen a match of that length yet OR this distance is shorter,
                 // record it. Shorter distances are better for compression.
