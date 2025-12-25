@@ -427,16 +427,56 @@ cargo build --release --no-default-features --features simd
 | Node.js only, max perf     | sharp                 | sharp                 | Native libvips, fastest            |
 | Zero dependencies          | comprs                | comprs                | Pure Rust, no C toolchain          |
 
-### Quick Decision Guide
+### The comprs Philosophy
+
+**comprs is pure Rust with zero dependencies.** This is a deliberate design choice that sets it apart from every other image compression tool in the ecosystem.
+
+#### The Landscape Today
+
+| Tool     | Language | Dependencies                                         |
+| -------- | -------- | ---------------------------------------------------- |
+| oxipng   | Rust     | Uses **libdeflate** (C) for DEFLATE compression      |
+| mozjpeg  | C        | Requires C toolchain, complex build                  |
+| pngquant | C        | Uses **libimagequant** (C) for quantization          |
+| sharp    | Node.js  | Uses **libvips** (C), 7-12 MB native binaries        |
+| squoosh  | WASM     | Emscripten-compiled C/C++ codecs (600KB-800KB each)  |
+| image    | Rust     | Pure Rust but includes many codecs (~2-4 MB)         |
+| zune-png | Rust     | Pure Rust, but PNG-only                              |
+
+Even "Rust" libraries often delegate the heavy lifting to C. oxipng's compression advantage comes almost entirely from libdeflate—a highly optimized C library. pngquant's superior quantization comes from libimagequant, also written in C.
+
+#### Why Pure Rust Matters
+
+1. **Portability**: comprs compiles to WASM without Emscripten. No C toolchain needed. Works identically on every platform.
+
+2. **Tiny binaries**: 146 KB WASM binary vs 600-800 KB for Squoosh codecs. This matters for web apps where every kilobyte counts.
+
+3. **Auditability**: One language, one codebase. No FFI boundaries to cross, no C memory safety concerns.
+
+4. **Simplicity**: `cargo add comprs` just works. No system dependencies, no build scripts, no linking headaches.
+
+#### The Tradeoffs
+
+Being pure Rust with zero dependencies means accepting some compression ratio gaps:
+
+| Comparison              | Gap      | Root Cause                                    |
+| ----------------------- | -------- | --------------------------------------------- |
+| PNG Max vs oxipng       | +8-17%   | libdeflate has 20+ years of C optimization    |
+| JPEG Max vs mozjpeg     | +4-5%    | mozjpeg has sophisticated trellis refinement  |
+| Lossy PNG vs pngquant   | +9%      | libimagequant uses advanced k-means iteration |
+
+These gaps are the cost of independence. For many use cases—especially web applications where binary size matters—the tradeoffs are worth it.
+
+#### When to Choose comprs
 
 | Scenario                                     | Recommendation                                          |
 | -------------------------------------------- | ------------------------------------------------------- |
 | **Building a web app with WASM?**            | Use comprs (146 KB binary, good compression)            |
 | **Need smallest PNG file size?**             | Use comprs Lossy (50-80% smaller than lossless)         |
+| **Want zero native dependencies?**           | Use comprs (pure Rust, no C toolchain)                  |
+| **Need predictable output across browsers?** | Use comprs (identical output everywhere)                |
 | **CLI tool, size doesn't matter?**           | Use oxipng/mozjpeg/pngquant (best compression ratios)   |
 | **Node.js server, need speed?**              | Use sharp (native bindings, excellent performance)      |
-| **Pure browser, no WASM?**                   | Use Canvas API (0 KB) or pngjs/jpeg-js (slow but works) |
-| **Need predictable output across browsers?** | Use comprs (identical output everywhere)                |
 | **Optimizing existing images in CI/CD?**     | Use oxipng/mozjpeg/pngquant CLI tools                   |
 
 ## Running Benchmarks
