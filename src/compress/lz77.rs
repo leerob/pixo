@@ -11,7 +11,7 @@
 pub const MAX_DISTANCE: usize = 32768;
 
 /// Threshold for "good enough" match - skip lazy matching above this length.
-/// This is a common optimization used by zlib to speed up compression.
+/// This is a common optimization used by zlib/libdeflate to speed up compression.
 const GOOD_MATCH_LENGTH: usize = 16;
 
 /// Maximum match length (as per DEFLATE spec).
@@ -20,9 +20,12 @@ pub const MAX_MATCH_LENGTH: usize = 258;
 /// Minimum match length worth encoding.
 pub const MIN_MATCH_LENGTH: usize = 3;
 
-/// Size of the hash table (power of 2 for fast modulo).
+/// Size of the 4-byte hash table (power of 2 for fast modulo).
 /// Enlarged to reduce collisions when using 4-byte hashes.
 const HASH_SIZE: usize = 1 << 16; // 65536 entries
+
+/// Size of the 3-byte hash table (singleton buckets).
+const HASH3_SIZE: usize = 1 << 15;
 
 /// LZ77 token representing either a literal or a match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +52,23 @@ pub enum Token {
 /// which fits in 15 bits and avoids collision with the LITERAL_FLAG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PackedToken(u32);
+
+/// Parsing strategy for lazy matching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LazyKind {
+    None,
+    Lazy,
+    Lazy2,
+}
+
+/// Level-specific tuning parameters.
+#[derive(Debug, Clone, Copy)]
+struct LevelConfig {
+    max_chain_length: usize,
+    max_search_depth: usize,
+    nice_length: usize,
+    lazy: LazyKind,
+}
 
 impl PackedToken {
     const LITERAL_FLAG: u32 = 0x8000_0000;
@@ -150,16 +170,26 @@ fn hash4(data: &[u8], pos: usize) -> usize {
     ((val.wrapping_mul(0x1E35_A7BD)) >> 16) as usize & (HASH_SIZE - 1)
 }
 
+/// Hash function for 3-byte sequences (singleton buckets).
+#[inline(always)]
+fn hash3(data: &[u8], pos: usize) -> usize {
+    if pos + 2 >= data.len() {
+        return 0;
+    }
+    let val = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], 0]);
+    ((val.wrapping_mul(0x1E35_A7BD)) >> 17) as usize & (HASH3_SIZE - 1)
+}
+
 /// LZ77 compressor with hash chain for fast matching.
 pub struct Lz77Compressor {
     /// Hash table: maps hash -> most recent position
     head: Vec<i32>,
+    /// Hash table for 3-byte matches (singleton buckets)
+    head3: Vec<i32>,
     /// Chain links: prev[pos % window] -> previous position with same hash
     prev: Vec<i32>,
-    /// Compression level (affects search depth)
-    max_chain_length: usize,
-    /// Lazy matching: check if next position has better match
-    lazy_matching: bool,
+    /// Level tuning knobs
+    config: LevelConfig,
 }
 
 impl Lz77Compressor {
@@ -167,28 +197,13 @@ impl Lz77Compressor {
     pub fn new(level: u8) -> Self {
         let level = level.clamp(1, 9);
 
-        // Tune chain length and lazy matching based on level.
-        // Note: Lazy matching is disabled because empirical testing shows it hurts
-        // compression ratio for PNG-style data with many short matches. The longer
-        // chain lengths at higher levels provide better compression without it.
-        let (max_chain_length, lazy_matching) = match level {
-            1 => (4, false),
-            2 => (8, false),
-            3 => (16, false),
-            4 => (32, false),
-            5 => (64, false),
-            6 => (128, false),
-            7 => (256, false),
-            8 => (1024, false),
-            9 => (4096, false), // Exhaustive search for maximum compression
-            _ => (128, false),
-        };
+        let config = Self::config_for_level(level);
 
         Self {
             head: vec![-1; HASH_SIZE],
+            head3: vec![-1; HASH3_SIZE],
             prev: vec![-1; MAX_DISTANCE],
-            max_chain_length,
-            lazy_matching,
+            config,
         }
     }
 
@@ -221,6 +236,7 @@ impl Lz77Compressor {
 
         // Reset hash tables
         self.head.fill(-1);
+        self.head3.fill(-1);
         self.prev.fill(-1);
 
         while pos < data.len() {
@@ -228,9 +244,12 @@ impl Lz77Compressor {
                 // Periodically probe for a match with a very shallow chain to exit early if data changes.
                 if probe_since_last >= INCOMPRESSIBLE_PROBE_INTERVAL {
                     probe_since_last = 0;
-                    if let Some((length, distance)) =
-                        self.find_best_match(data, pos, INCOMPRESSIBLE_CHAIN_LIMIT)
-                    {
+                    if let Some((length, distance)) = self.find_best_match(
+                        data,
+                        pos,
+                        INCOMPRESSIBLE_CHAIN_LIMIT.min(self.config.max_search_depth),
+                        self.config.nice_length,
+                    ) {
                         incompressible_mode = false;
                         literal_streak = 0;
 
@@ -262,7 +281,7 @@ impl Lz77Compressor {
                 probe_since_last = 0;
                 INCOMPRESSIBLE_CHAIN_LIMIT
             } else {
-                self.max_chain_length
+                self.config.max_chain_length
             };
 
             // If we have a pending match from lazy evaluation, use it directly
@@ -270,7 +289,12 @@ impl Lz77Compressor {
             let best_match = if let Some(pending) = pending_match.take() {
                 Some(pending)
             } else {
-                self.find_best_match(data, pos, chain_limit)
+                self.find_best_match(
+                    data,
+                    pos,
+                    chain_limit.min(self.config.max_search_depth),
+                    self.config.nice_length,
+                )
             };
 
             if let Some((length, distance)) = best_match {
@@ -281,17 +305,30 @@ impl Lz77Compressor {
                 // Check for lazy match if enabled, but skip for "good enough" matches.
                 // Only defer if the next match is significantly better (>= 3 bytes longer)
                 // to justify the cost of emitting a literal.
-                if self.lazy_matching && length < GOOD_MATCH_LENGTH && pos + 1 < data.len() {
+                if self.config.lazy != LazyKind::None
+                    && length < self.config.nice_length
+                    && length < GOOD_MATCH_LENGTH
+                    && pos + 1 < data.len()
+                {
                     // Update hash for current position before looking ahead
                     self.update_hash(data, pos);
 
-                    if let Some((next_length, next_distance)) =
-                        self.find_best_match(data, pos + 1, chain_limit)
-                    {
+                    let next_chain = if self.config.lazy == LazyKind::Lazy2 {
+                        (chain_limit / 2).max(1)
+                    } else {
+                        chain_limit
+                    };
+
+                    if let Some((next_length, next_distance)) = self.find_best_match(
+                        data,
+                        pos + 1,
+                        next_chain.min(self.config.max_search_depth),
+                        self.config.nice_length,
+                    ) {
                         // Require significant improvement to justify deferral.
                         // A literal costs ~8-9 bits, so the next match should save more than that.
                         // Length difference of 3+ bytes typically saves 24+ bits of match data.
-                        if next_length >= length + 3 {
+                        if next_length >= length + 3 || next_length >= self.config.nice_length {
                             // Better match at next position, emit literal and store pending match
                             sink.push_literal(data[pos]);
                             pending_match = Some((next_length, next_distance));
@@ -339,15 +376,39 @@ impl Lz77Compressor {
         data: &[u8],
         pos: usize,
         chain_limit: usize,
+        nice_length: usize,
     ) -> Option<(usize, usize)> {
         if pos + MIN_MATCH_LENGTH > data.len() {
             return None;
         }
 
-        let hash = hash4(data, pos);
-        let mut chain_pos = self.head[hash];
+        // Check length-3 singleton hash first (cheap path)
         let mut best_length = MIN_MATCH_LENGTH - 1;
         let mut best_distance = 0;
+
+        let hash3 = hash3(data, pos);
+        let cand3 = self.head3[hash3];
+        if cand3 >= 0 {
+            let match_pos = cand3 as usize;
+            let distance = pos - match_pos;
+            if distance <= MAX_DISTANCE && match_pos + 3 <= data.len() {
+                let a = &data[pos..pos + 3];
+                let b = &data[match_pos..match_pos + 3];
+                if a == b {
+                    let len = self
+                        .match_length(data, match_pos, pos)
+                        .min(MAX_MATCH_LENGTH);
+                    best_length = len;
+                    best_distance = distance;
+                    if best_length >= nice_length {
+                        return Some((best_length, best_distance));
+                    }
+                }
+            }
+        }
+
+        let hash = hash4(data, pos);
+        let mut chain_pos = self.head[hash];
 
         let max_distance = pos.min(MAX_DISTANCE);
         let mut chain_remaining = chain_limit;
@@ -396,7 +457,7 @@ impl Lz77Compressor {
                 best_distance = distance;
 
                 // Early exit if we found max length.
-                if length >= MAX_MATCH_LENGTH {
+                if length >= MAX_MATCH_LENGTH || best_length >= nice_length {
                     break;
                 }
             }
@@ -468,6 +529,10 @@ impl Lz77Compressor {
             return;
         }
 
+        // Update 3-byte singleton hash
+        let h3 = hash3(data, pos);
+        self.head3[h3] = pos as i32;
+
         let hash = hash4(data, pos);
         self.prev[pos % MAX_DISTANCE] = self.head[hash];
         self.head[hash] = pos as i32;
@@ -492,7 +557,10 @@ impl Lz77Compressor {
         let hash = hash4(data, pos);
         let mut chain_pos = self.head[hash];
         let max_distance = pos.min(MAX_DISTANCE);
-        let mut chain_remaining = self.max_chain_length;
+        let mut chain_remaining = self
+            .config
+            .max_chain_length
+            .min(self.config.max_search_depth);
 
         while chain_pos >= 0 && chain_remaining > 0 {
             let match_pos = chain_pos as usize;
@@ -860,6 +928,67 @@ const INCOMPRESSIBLE_UPDATE_INTERVAL: usize = 64;
 impl Default for Lz77Compressor {
     fn default() -> Self {
         Self::new(6)
+    }
+}
+
+impl Lz77Compressor {
+    fn config_for_level(level: u8) -> LevelConfig {
+        match level {
+            1 => LevelConfig {
+                max_chain_length: 4,
+                max_search_depth: 4,
+                nice_length: 32,
+                lazy: LazyKind::None,
+            },
+            2 => LevelConfig {
+                max_chain_length: 8,
+                max_search_depth: 6,
+                nice_length: 10,
+                lazy: LazyKind::None,
+            },
+            3 => LevelConfig {
+                max_chain_length: 16,
+                max_search_depth: 12,
+                nice_length: 14,
+                lazy: LazyKind::None,
+            },
+            4 => LevelConfig {
+                max_chain_length: 32,
+                max_search_depth: 16,
+                nice_length: 30,
+                lazy: LazyKind::None,
+            },
+            5 => LevelConfig {
+                max_chain_length: 64,
+                max_search_depth: 16,
+                nice_length: 30,
+                lazy: LazyKind::Lazy,
+            },
+            6 => LevelConfig {
+                max_chain_length: 128,
+                max_search_depth: 35,
+                nice_length: 65,
+                lazy: LazyKind::Lazy,
+            },
+            7 => LevelConfig {
+                max_chain_length: 256,
+                max_search_depth: 100,
+                nice_length: 130,
+                lazy: LazyKind::Lazy,
+            },
+            8 => LevelConfig {
+                max_chain_length: 1024,
+                max_search_depth: 300,
+                nice_length: MAX_MATCH_LENGTH,
+                lazy: LazyKind::Lazy2,
+            },
+            9 | _ => LevelConfig {
+                max_chain_length: 4096,
+                max_search_depth: 600,
+                nice_length: MAX_MATCH_LENGTH,
+                lazy: LazyKind::Lazy2,
+            },
+        }
     }
 }
 
