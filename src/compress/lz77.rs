@@ -554,6 +554,22 @@ impl Lz77Compressor {
             return (sublen, 0);
         }
 
+        // Cheap length-3 singleton hash probe
+        let hash3 = hash3(data, pos);
+        let cand3 = self.head3[hash3];
+        if cand3 >= 0 {
+            let match_pos = cand3 as usize;
+            let distance = pos - match_pos;
+            if distance <= MAX_DISTANCE && match_pos + 3 <= data.len() {
+                let a = &data[pos..pos + 3];
+                let b = &data[match_pos..match_pos + 3];
+                if a == b {
+                    sublen[3] = distance as u16;
+                    max_length = 3;
+                }
+            }
+        }
+
         let hash = hash4(data, pos);
         let mut chain_pos = self.head[hash];
         let max_distance = pos.min(MAX_DISTANCE);
@@ -615,6 +631,7 @@ impl Lz77Compressor {
 
         // Reset hash tables
         self.head.fill(-1);
+        self.head3.fill(-1);
         self.prev.fill(-1);
 
         // costs[i] = minimum cost to encode bytes 0..i
