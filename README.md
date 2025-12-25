@@ -8,8 +8,6 @@ A minimal-dependency, high-performance image compression library written in Rust
 
 This is a work-in-progress and exploration of coding agents.
 
-**API docs (with embedded guides):** build locally with `cargo doc --all-features --open` or view on docs.rs once published (`docs.rs/comprs`).
-
 ## Features
 
 - **Zero runtime dependencies** — All encoding algorithms implemented from scratch
