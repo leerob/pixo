@@ -593,8 +593,7 @@ mod tests {
     #[test]
     fn test_build_code_table_basic() {
         // Standard DC luminance table
-        let codes: Option<[HuffCode; 12]> =
-            build_code_table::<12>(&DC_LUM_BITS, &DC_LUM_VALS, 12);
+        let codes: Option<[HuffCode; 12]> = build_code_table::<12>(&DC_LUM_BITS, &DC_LUM_VALS, 12);
         assert!(codes.is_some());
         let codes = codes.unwrap();
 
@@ -789,8 +788,8 @@ mod tests {
         // Create a block with zeros followed by a non-zero AC at the end
         let mut block = [0i16; 64];
         block[0] = 10; // DC
-        // Place a non-zero coefficient late in zigzag order
-        // Zigzag index 63 corresponds to position 63 in natural order
+                       // Place a non-zero coefficient late in zigzag order
+                       // Zigzag index 63 corresponds to position 63 in natural order
         block[63] = 5;
 
         let new_dc = encode_block(&mut writer, &block, 10, true, &tables);

@@ -580,10 +580,7 @@ mod tests {
 
         for code in &codes {
             if code.length > 0 {
-                length_codes
-                    .entry(code.length)
-                    .or_default()
-                    .push(code.code);
+                length_codes.entry(code.length).or_default().push(code.code);
             }
         }
 

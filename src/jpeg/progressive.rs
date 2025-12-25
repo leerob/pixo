@@ -747,8 +747,14 @@ mod tests {
             }
         }
 
-        assert!(dc_covered.iter().all(|&x| x), "Not all DC components covered");
-        assert!(ac_covered.iter().all(|&x| x), "Not all AC components covered");
+        assert!(
+            dc_covered.iter().all(|&x| x),
+            "Not all DC components covered"
+        );
+        assert!(
+            ac_covered.iter().all(|&x| x),
+            "Not all AC components covered"
+        );
     }
 
     #[test]

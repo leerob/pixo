@@ -216,10 +216,16 @@ mod tests {
         for q in [1, 25, 50, 75, 100] {
             let tables = QuantizationTables::with_quality(q);
             for &val in &tables.luminance {
-                assert!(val >= 1 && val <= 255, "Quality {q}: value {val} out of range");
+                assert!(
+                    val >= 1 && val <= 255,
+                    "Quality {q}: value {val} out of range"
+                );
             }
             for &val in &tables.chrominance {
-                assert!(val >= 1 && val <= 255, "Quality {q}: chrom value {val} out of range");
+                assert!(
+                    val >= 1 && val <= 255,
+                    "Quality {q}: chrom value {val} out of range"
+                );
             }
         }
     }
@@ -312,13 +318,11 @@ mod tests {
         // Float and int tables should have same values
         for i in 0..64 {
             assert_eq!(
-                tables.luminance_table[i] as u16,
-                tables.luminance_table_int[i],
+                tables.luminance_table[i] as u16, tables.luminance_table_int[i],
                 "Mismatch at position {i}"
             );
             assert_eq!(
-                tables.chrominance_table[i] as u16,
-                tables.chrominance_table_int[i],
+                tables.chrominance_table[i] as u16, tables.chrominance_table_int[i],
                 "Chroma mismatch at position {i}"
             );
         }

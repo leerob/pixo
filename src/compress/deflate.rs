@@ -2463,7 +2463,9 @@ mod tests {
     #[test]
     fn test_distance_code_all_distances() {
         // Test various distances
-        for dist in [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768] {
+        for dist in [
+            1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768,
+        ] {
             let (code, extra_bits, extra_val) = distance_code(dist);
             assert!(code < 30, "Invalid distance code {code}");
             assert!(extra_bits <= 13, "Too many extra bits");
@@ -2479,7 +2481,10 @@ mod tests {
         let data = b"test data for compression at various levels";
         for level in 1..=9 {
             let compressed = deflate(data, level);
-            assert!(!compressed.is_empty(), "Level {level} produced empty output");
+            assert!(
+                !compressed.is_empty(),
+                "Level {level} produced empty output"
+            );
         }
     }
 
@@ -2556,7 +2561,7 @@ mod tests {
         assert_eq!(lit_counts[b'b' as usize], 1);
         assert_eq!(lit_counts[b'c' as usize], 1);
         assert_eq!(lit_counts[256], 1); // EOB
-        // Per DEFLATE spec, at least one distance symbol is guaranteed
+                                        // Per DEFLATE spec, at least one distance symbol is guaranteed
         assert_eq!(dist_counts[0], 1);
     }
 

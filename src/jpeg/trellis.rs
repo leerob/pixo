@@ -489,7 +489,7 @@ mod tests {
         // Test behavior with high-frequency coefficients
         let mut dct = [0.0f32; 64];
         dct[0] = 200.0; // DC
-        // Set high-frequency coefficients (late in zigzag order)
+                        // Set high-frequency coefficients (late in zigzag order)
         dct[63] = 32.0;
         dct[62] = 48.0;
 

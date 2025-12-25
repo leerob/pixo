@@ -682,9 +682,9 @@ mod tests {
 
         // First byte: left=0, above=50, avg=25
         assert_eq!(output[0], 100u8.wrapping_sub(25)); // 75
-        // Second byte: left=100, above=50, avg=75
+                                                       // Second byte: left=100, above=50, avg=75
         assert_eq!(output[1], 100u8.wrapping_sub(75)); // 25
-        // Third byte: left=100, above=50, avg=75
+                                                       // Third byte: left=100, above=50, avg=75
         assert_eq!(output[2], 100u8.wrapping_sub(75)); // 25
     }
 
