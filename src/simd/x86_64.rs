@@ -136,36 +136,30 @@ unsafe fn fold_16(acc: __m128i, data: __m128i, k: __m128i) -> __m128i {
 #[target_feature(enable = "pclmulqdq", enable = "sse4.1")]
 unsafe fn reduce_128_to_32(x: __m128i) -> u32 {
     let k5k6 = _mm_set_epi64x(
-        crc32_constants::K5K6.1 as i64,
-        crc32_constants::K5K6.0 as i64,
+        crc32_constants::K5K6.1 as i64, // K6 in high 64 bits
+        crc32_constants::K5K6.0 as i64, // K5 in low 64 bits
     );
     let poly_mu = _mm_set_epi64x(
-        crc32_constants::POLY_MU.1 as i64,
-        crc32_constants::POLY_MU.0 as i64,
+        crc32_constants::POLY_MU.1 as i64, // poly in high 64 bits
+        crc32_constants::POLY_MU.0 as i64, // mu in low 64 bits
     );
+    let mask32 = _mm_set_epi32(0, 0, 0, -1);
 
-    // Fold 128 -> 64 bits
-    let lo = _mm_clmulepi64_si128(x, k5k6, 0x00);
-    let hi = _mm_srli_si128(x, 8);
-    let folded = _mm_xor_si128(lo, hi);
+    // Fold 128 -> 64 bits: x.high XOR (x.low * K6)
+    let t0 = _mm_clmulepi64_si128(x, k5k6, 0x10); // x.low * K6 (high of k5k6)
+    let x_high = _mm_srli_si128(x, 8);
+    let folded = _mm_xor_si128(x_high, t0);
 
-    // Fold 64 -> 32 bits
-    let lo32 = _mm_clmulepi64_si128(
-        _mm_and_si128(folded, _mm_set_epi32(0, 0, 0, -1)),
-        k5k6,
-        0x10,
-    );
-    let hi32 = _mm_srli_si128(folded, 4);
-    let folded32 = _mm_xor_si128(lo32, hi32);
+    // Fold 64 -> 32 bits: folded.low32 XOR (folded.high32 * K5)
+    let folded_high32 = _mm_srli_si128(folded, 4); // shift right 4 bytes to get high 32 bits
+    let t1 = _mm_clmulepi64_si128(folded_high32, k5k6, 0x00); // high32 * K5 (low of k5k6)
+    let folded_low32 = _mm_and_si128(folded, mask32);
+    let folded32 = _mm_xor_si128(folded_low32, t1);
 
     // Barrett reduction
-    let t1 = _mm_clmulepi64_si128(
-        _mm_and_si128(folded32, _mm_set_epi32(0, 0, 0, -1)),
-        poly_mu,
-        0x00,
-    );
-    let t2 = _mm_clmulepi64_si128(_mm_and_si128(t1, _mm_set_epi32(0, 0, 0, -1)), poly_mu, 0x10);
-    let result = _mm_xor_si128(folded32, t2);
+    let t2 = _mm_clmulepi64_si128(_mm_and_si128(folded32, mask32), poly_mu, 0x00); // * mu
+    let t3 = _mm_clmulepi64_si128(_mm_and_si128(t2, mask32), poly_mu, 0x10); // * poly
+    let result = _mm_xor_si128(folded32, t3);
 
     _mm_extract_epi32(result, 1) as u32
 }
