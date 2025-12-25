@@ -1179,7 +1179,14 @@ impl Lz77Compressor {
                 lazy: LazyKind::Lazy2,
                 use_ht: false,
             },
-            9 | _ => LevelConfig {
+            9 => LevelConfig {
+                max_chain_length: 4096,
+                max_search_depth: 600,
+                nice_length: MAX_MATCH_LENGTH,
+                lazy: LazyKind::Lazy2,
+                use_ht: false,
+            },
+            _ => LevelConfig {
                 max_chain_length: 4096,
                 max_search_depth: 600,
                 nice_length: MAX_MATCH_LENGTH,
