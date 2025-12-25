@@ -163,15 +163,15 @@ unsafe fn reduce_128_to_32(x: __m128i) -> u32 {
     // Multiply crc.low by K6, XOR low 32 bits of result with high 32 bits of crc
     let t1 = _mm_clmulepi64_si128(_mm_and_si128(crc, mask32), k5k6, 0x10); // crc[31:0] * K6
     let crc = _mm_xor_si128(_mm_srli_si128(crc, 4), t1); // crc[63:32] XOR t1
-    // Now the 32-bit value to reduce is at crc[31:0], with extra bits in [63:32]
+                                                         // Now the 32-bit value to reduce is at crc[31:0], with extra bits in [63:32]
 
     // Step 3: Barrett reduction
     // T1 = floor(crc[31:0] / x^32) * mu = crc[31:0] * mu, take high part
     let t2 = _mm_clmulepi64_si128(_mm_and_si128(crc, mask32), poly_mu, 0x00); // crc[31:0] * mu
-    // T2 = floor(T1 / x^32) * P = T1[63:32] * P
+                                                                              // T2 = floor(T1 / x^32) * P = T1[63:32] * P
     let t2_high = _mm_srli_si128(t2, 4);
     let t3 = _mm_clmulepi64_si128(_mm_and_si128(t2_high, mask32), poly_mu, 0x10); // t2[63:32] * poly
-    // CRC = (crc XOR T2)[31:0]
+                                                                                  // CRC = (crc XOR T2)[31:0]
     let result = _mm_xor_si128(crc, t3);
 
     _mm_extract_epi32(result, 0) as u32
