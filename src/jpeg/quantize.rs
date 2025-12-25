@@ -216,16 +216,10 @@ mod tests {
         for q in [1, 25, 50, 75, 100] {
             let tables = QuantizationTables::with_quality(q);
             for &val in &tables.luminance {
-                assert!(
-                    val >= 1 && val <= 255,
-                    "Quality {q}: value {val} out of range"
-                );
+                assert!(val >= 1, "Quality {q}: value {val} is zero");
             }
             for &val in &tables.chrominance {
-                assert!(
-                    val >= 1 && val <= 255,
-                    "Quality {q}: chrom value {val} out of range"
-                );
+                assert!(val >= 1, "Quality {q}: chrom value {val} is zero");
             }
         }
     }

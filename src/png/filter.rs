@@ -77,7 +77,6 @@ pub fn apply_filters(
     // filtering for noisy data. However, checking only the first row is not
     // sufficient to determine the optimal strategy for the entire image.
     // For now, we rely on per-row adaptive decisions instead.
-    // See `is_high_entropy_row` which is still used in adaptive_filter.
 
     // Parallel path (only for adaptive; other strategies are trivial)
     #[cfg(feature = "parallel")]
@@ -544,6 +543,7 @@ fn score_filter(filtered: &[u8]) -> u64 {
 ///
 /// This avoids misclassifying smooth gradients (constant delta).
 /// Guarded to rows >= 1024 bytes to avoid noise.
+#[allow(dead_code)]
 fn is_high_entropy_row(row: &[u8]) -> bool {
     if row.len() < 1024 {
         return false;

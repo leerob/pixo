@@ -611,7 +611,7 @@ mod tests {
 
         // DC should be at position 0
         assert_eq!(result[0], 20);
-        // Other coefficients should be processed
-        assert!(result[1] != 0 || result[8] != 0 || true); // Just verify no crash
+        // Just verify the function completed and returned a valid array
+        assert_eq!(result.len(), 64);
     }
 }
