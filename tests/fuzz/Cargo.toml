@@ -1,0 +1,50 @@
+[package]
+name = "comprs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.comprs]
+path = "../.."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "png_encode"
+path = "fuzz_targets/png_encode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jpeg_encode"
+path = "fuzz_targets/jpeg_encode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "deflate"
+path = "fuzz_targets/deflate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lz77"
+path = "fuzz_targets/lz77.rs"
+test = false
+doc = false
+bench = false

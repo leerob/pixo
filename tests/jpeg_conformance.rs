@@ -265,6 +265,115 @@ fn test_image_too_large() {
     assert!(matches!(err, comprs::Error::ImageTooLarge { .. }));
 }
 
+// ============================================================================
+// Extended Property Tests - Edge Cases
+// ============================================================================
+
+/// Verify that zero dimensions are rejected for all supported color types.
+#[test]
+fn test_jpeg_rejects_zero_dimensions() {
+    let color_types = [ColorType::Gray, ColorType::Rgb];
+
+    for ct in &color_types {
+        // Zero width
+        let err = jpeg::encode_with_color(&[0u8; 100], 0, 10, 85, *ct);
+        assert!(err.is_err(), "Should reject zero width for {:?}", ct);
+
+        // Zero height
+        let err = jpeg::encode_with_color(&[0u8; 100], 10, 0, 85, *ct);
+        assert!(err.is_err(), "Should reject zero height for {:?}", ct);
+
+        // Both zero
+        let err = jpeg::encode_with_color(&[], 0, 0, 85, *ct);
+        assert!(err.is_err(), "Should reject zero dimensions for {:?}", ct);
+    }
+}
+
+/// Verify edge quality values are handled correctly.
+#[test]
+fn test_jpeg_quality_edge_values() {
+    let pixels = vec![128u8; 8 * 8 * 3];
+
+    // Quality 1 should work (minimum)
+    let result = jpeg::encode(&pixels, 8, 8, 1);
+    assert!(result.is_ok(), "Quality 1 should be valid");
+
+    // Quality 100 should work (maximum)
+    let result = jpeg::encode(&pixels, 8, 8, 100);
+    assert!(result.is_ok(), "Quality 100 should be valid");
+}
+
+// Property test: any valid JPEG parameters should produce decodable output.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(16))]
+    #[test]
+    fn prop_jpeg_valid_params_always_succeed(
+        width in 1u32..64,
+        height in 1u32..64,
+        quality in 1u8..=100,
+        is_gray in any::<bool>(),
+        seed in any::<u64>(),
+    ) {
+        let color_type = if is_gray { ColorType::Gray } else { ColorType::Rgb };
+        let bpp = color_type.bytes_per_pixel();
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut pixels = vec![0u8; (width * height) as usize * bpp];
+        rng.fill(pixels.as_mut_slice());
+
+        // Should always succeed with valid parameters
+        let encoded = jpeg::encode_with_color(&pixels, width, height, quality, color_type)
+            .expect("encoding should succeed");
+
+        // Should produce valid JPEG markers
+        prop_assert_eq!(&encoded[0..2], &[0xFF, 0xD8], "Missing SOI");
+        prop_assert_eq!(&encoded[encoded.len()-2..], &[0xFF, 0xD9], "Missing EOI");
+    }
+}
+
+// Property test: encoding with all builder options should produce valid output.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(8))]
+    #[test]
+    fn prop_jpeg_builder_options_produce_valid_output(
+        width in 8u32..32,
+        height in 8u32..32,
+        quality in 50u8..95,
+        use_420 in any::<bool>(),
+        optimize_huffman in any::<bool>(),
+        restart in proptest::option::of(1u16..8),
+        seed in any::<u64>(),
+    ) {
+        let subsampling = if use_420 {
+            jpeg::Subsampling::S420
+        } else {
+            jpeg::Subsampling::S444
+        };
+
+        let options = jpeg::JpegOptions::builder()
+            .quality(quality)
+            .subsampling(subsampling)
+            .optimize_huffman(optimize_huffman)
+            .restart_interval(restart)
+            .build();
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut pixels = vec![0u8; (width * height * 3) as usize];
+        rng.fill(pixels.as_mut_slice());
+
+        let encoded = jpeg::encode_with_options(&pixels, width, height, ColorType::Rgb, &options)
+            .expect("encoding should succeed");
+
+        // Verify JPEG markers
+        prop_assert_eq!(&encoded[0..2], &[0xFF, 0xD8], "Missing SOI");
+        prop_assert_eq!(&encoded[encoded.len()-2..], &[0xFF, 0xD9], "Missing EOI");
+
+        // Verify it decodes
+        let decoded = image::load_from_memory(&encoded).expect("decode");
+        prop_assert_eq!(decoded.dimensions(), (width, height));
+    }
+}
+
 /// Test that encoding produces deterministic output.
 #[test]
 fn test_deterministic() {

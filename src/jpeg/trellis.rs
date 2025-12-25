@@ -207,8 +207,6 @@ pub fn trellis_quantize(
     result
 }
 
-/// Generate candidate quantized values around the floating-point value.
-/// Uses adaptive candidate generation based on magnitude.
 fn generate_candidates(float_quant: f32) -> Vec<i16> {
     let rounded = float_quant.round() as i16;
     let floor_val = float_quant.floor() as i16;
@@ -245,8 +243,6 @@ fn generate_candidates(float_quant: f32) -> Vec<i16> {
     candidates
 }
 
-/// Estimate rate (bits) for encoding an AC coefficient with given run length.
-/// Based on JPEG's run-length encoding: (run, size) + value bits.
 fn estimate_ac_rate(value: i16, zero_run: u8) -> f32 {
     let cat = category(value);
 
@@ -261,8 +257,6 @@ fn estimate_ac_rate(value: i16, zero_run: u8) -> f32 {
     huffman_bits + value_bits
 }
 
-/// Estimate Huffman code length for AC (run, size) symbol.
-/// Based on typical JPEG AC Huffman table statistics.
 fn estimate_ac_huffman_length(rs: usize) -> f32 {
     // Common symbols have shorter codes
     match rs {
@@ -284,17 +278,14 @@ fn estimate_ac_huffman_length(rs: usize) -> f32 {
     }
 }
 
-/// Estimate rate for ZRL symbol (16 zeros).
 fn estimate_zrl_rate() -> f32 {
     10.0 // ZRL is typically 10-12 bits
 }
 
-/// Estimate rate for EOB symbol.
 fn estimate_eob_rate() -> f32 {
     4.0 // EOB is typically 2-4 bits
 }
 
-/// Get the category (number of bits needed) for a value.
 fn category(value: i16) -> u8 {
     let abs_val = value.unsigned_abs();
     if abs_val == 0 {

@@ -59,13 +59,12 @@ impl BitWriter {
         }
     }
 
-    /// Write a single bit.
     #[inline]
     pub fn write_bit(&mut self, bit: bool) {
         self.write_bits(bit as u32, 1);
     }
 
-    /// Write a byte-aligned value (flushes partial byte first with zeros).
+    /// Flushes partial byte first with zeros if not byte-aligned.
     pub fn write_byte(&mut self, byte: u8) {
         if self.bit_position == 0 {
             self.buffer.push(byte);
@@ -74,7 +73,6 @@ impl BitWriter {
         }
     }
 
-    /// Write multiple bytes.
     pub fn write_bytes(&mut self, bytes: &[u8]) {
         if self.bit_position == 0 {
             self.buffer.extend_from_slice(bytes);
@@ -94,24 +92,21 @@ impl BitWriter {
         }
     }
 
-    /// Consume the writer and return the byte buffer.
     #[must_use]
     pub fn finish(mut self) -> Vec<u8> {
         self.flush();
         self.buffer
     }
 
-    /// Get the current length in bytes (not counting partial byte).
+    /// Returns length in bytes (not counting partial byte).
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
-    /// Check if the writer is empty.
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty() && self.bit_position == 0
     }
 
-    /// Get current bit position within the current byte.
     pub fn bit_position(&self) -> u8 {
         self.bit_position
     }
@@ -138,12 +133,10 @@ impl Default for BitWriter64 {
 }
 
 impl BitWriter64 {
-    /// Create a new bit writer with default capacity.
     pub fn new() -> Self {
         Self::with_capacity(1024)
     }
 
-    /// Create a new bit writer with specified byte capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: Vec::with_capacity(capacity),
@@ -152,7 +145,6 @@ impl BitWriter64 {
         }
     }
 
-    /// Write bits to the stream, LSB first.
     #[inline]
     pub fn write_bits(&mut self, value: u32, num_bits: u8) {
         debug_assert!(num_bits <= 32);
@@ -161,7 +153,6 @@ impl BitWriter64 {
         self.acc |= val64 << self.bits_in_acc;
         self.bits_in_acc += num_bits;
 
-        // Flush full bytes
         while self.bits_in_acc >= 8 {
             self.buffer.push(self.acc as u8);
             self.acc >>= 8;
@@ -169,13 +160,12 @@ impl BitWriter64 {
         }
     }
 
-    /// Write a single bit.
     #[inline]
     pub fn write_bit(&mut self, bit: bool) {
         self.write_bits(bit as u32, 1);
     }
 
-    /// Flush any remaining bits, padding with zeros.
+    /// Pads remaining bits with zeros.
     pub fn flush(&mut self) {
         if self.bits_in_acc > 0 {
             self.buffer.push(self.acc as u8);
@@ -184,19 +174,17 @@ impl BitWriter64 {
         }
     }
 
-    /// Consume the writer and return the byte buffer.
     #[must_use]
     pub fn finish(mut self) -> Vec<u8> {
         self.flush();
         self.buffer
     }
 
-    /// Get the current length in bytes (not counting partial byte).
+    /// Returns length in bytes (not counting partial byte).
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
-    /// Check if the writer is empty.
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty() && self.bits_in_acc == 0
     }
@@ -211,12 +199,10 @@ pub struct BitWriterMsb {
 }
 
 impl BitWriterMsb {
-    /// Create a new MSB bit writer.
     pub fn new() -> Self {
         Self::with_capacity(1024)
     }
 
-    /// Create a new MSB bit writer with specified capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: Vec::with_capacity(capacity),
@@ -225,9 +211,7 @@ impl BitWriterMsb {
         }
     }
 
-    /// Write bits to the stream, MSB first.
-    ///
-    /// Optimized to process multiple bits at once instead of bit-by-bit.
+    /// Processes multiple bits at once instead of bit-by-bit.
     #[inline]
     pub fn write_bits(&mut self, value: u32, num_bits: u8) {
         debug_assert!(num_bits <= 32);
@@ -268,13 +252,12 @@ impl BitWriterMsb {
         self.bit_position = 8;
     }
 
-    /// Write a single bit.
     #[inline]
     pub fn write_bit(&mut self, bit: bool) {
         self.write_bits(bit as u32, 1);
     }
 
-    /// Flush remaining bits, padding with 1s (as per JPEG spec).
+    /// Pads remaining bits with 1s (as per JPEG spec).
     pub fn flush(&mut self) {
         if self.bit_position < 8 {
             // Pad with 1s
@@ -288,25 +271,22 @@ impl BitWriterMsb {
         }
     }
 
-    /// Consume the writer and return the byte buffer.
     #[must_use]
     pub fn finish(mut self) -> Vec<u8> {
         self.flush();
         self.buffer
     }
 
-    /// Write raw bytes (must be byte-aligned).
+    /// Must be byte-aligned.
     pub fn write_bytes(&mut self, bytes: &[u8]) {
         debug_assert_eq!(self.bit_position, 8, "Must be byte-aligned");
         self.buffer.extend_from_slice(bytes);
     }
 
-    /// Get the current buffer length.
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
-    /// Check if empty.
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty() && self.bit_position == 8
     }

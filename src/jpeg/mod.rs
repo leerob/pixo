@@ -168,49 +168,43 @@ pub struct JpegOptionsBuilder {
 }
 
 impl JpegOptionsBuilder {
-    /// Set quality (1-100).
     pub fn quality(mut self, quality: u8) -> Self {
         self.options.quality = quality;
         self
     }
 
-    /// Set chroma subsampling.
     pub fn subsampling(mut self, subsampling: Subsampling) -> Self {
         self.options.subsampling = subsampling;
         self
     }
 
-    /// Set restart interval in MCUs (None disables restarts).
+    /// None disables restarts.
     pub fn restart_interval(mut self, interval: Option<u16>) -> Self {
         self.options.restart_interval = interval;
         self
     }
 
-    /// Enable or disable optimized Huffman tables.
     pub fn optimize_huffman(mut self, value: bool) -> Self {
         self.options.optimize_huffman = value;
         self
     }
 
-    /// Enable or disable progressive JPEG encoding.
     pub fn progressive(mut self, value: bool) -> Self {
         self.options.progressive = value;
         self
     }
 
-    /// Enable or disable trellis quantization.
     pub fn trellis_quant(mut self, value: bool) -> Self {
         self.options.trellis_quant = value;
         self
     }
 
-    /// Apply preset (0=fast, 1=balanced, 2=max) while retaining the builder.
+    /// Applies preset while retaining the builder.
     pub fn preset(mut self, preset: u8) -> Self {
         self.options = JpegOptions::from_preset(self.options.quality, preset);
         self
     }
 
-    /// Finish building `JpegOptions`.
     #[must_use]
     pub fn build(self) -> JpegOptions {
         self.options
@@ -370,17 +364,14 @@ pub fn encode_with_options_into(
     Ok(())
 }
 
-/// Write SOI (Start of Image) marker.
 fn write_soi(output: &mut Vec<u8>) {
     output.extend_from_slice(&SOI.to_be_bytes());
 }
 
-/// Write EOI (End of Image) marker.
 fn write_eoi(output: &mut Vec<u8>) {
     output.extend_from_slice(&EOI.to_be_bytes());
 }
 
-/// Write APP0 (JFIF) marker.
 fn write_app0(output: &mut Vec<u8>) {
     output.extend_from_slice(&APP0.to_be_bytes());
 
@@ -408,7 +399,6 @@ fn write_app0(output: &mut Vec<u8>) {
     output.push(0);
 }
 
-/// Write DQT (Define Quantization Table) marker.
 fn write_dqt(output: &mut Vec<u8>, tables: &QuantizationTables) {
     // Luminance table
     output.extend_from_slice(&DQT.to_be_bytes());
@@ -423,7 +413,6 @@ fn write_dqt(output: &mut Vec<u8>, tables: &QuantizationTables) {
     output.extend_from_slice(&tables.chrominance);
 }
 
-/// Write SOF0 (Start of Frame - baseline) marker.
 fn write_sof0(
     output: &mut Vec<u8>,
     width: u32,
@@ -434,7 +423,6 @@ fn write_sof0(
     write_sof_marker(output, SOF0, width, height, color_type, subsampling);
 }
 
-/// Write SOF2 (Start of Frame - progressive) marker.
 fn write_sof2(
     output: &mut Vec<u8>,
     width: u32,
@@ -445,7 +433,6 @@ fn write_sof2(
     write_sof_marker(output, SOF2, width, height, color_type, subsampling);
 }
 
-/// Write SOF marker (shared implementation for baseline and progressive).
 fn write_sof_marker(
     output: &mut Vec<u8>,
     marker: u16,
@@ -503,7 +490,6 @@ fn write_sof_marker(
     }
 }
 
-/// Write DHT (Define Huffman Table) marker.
 fn write_dht(output: &mut Vec<u8>, tables: &HuffmanTables) {
     // DC luminance
     write_huffman_table(output, 0x00, &tables.dc_lum_bits, &tables.dc_lum_vals);
@@ -518,14 +504,12 @@ fn write_dht(output: &mut Vec<u8>, tables: &HuffmanTables) {
     write_huffman_table(output, 0x11, &tables.ac_chrom_bits, &tables.ac_chrom_vals);
 }
 
-/// Write DRI (Define Restart Interval) marker.
 fn write_dri(output: &mut Vec<u8>, interval: u16) {
     output.extend_from_slice(&0xFFDDu16.to_be_bytes());
     output.extend_from_slice(&4u16.to_be_bytes()); // length = 4
     output.extend_from_slice(&interval.to_be_bytes());
 }
 
-/// Write a single Huffman table.
 fn write_huffman_table(output: &mut Vec<u8>, table_id: u8, bits: &[u8; 16], vals: &[u8]) {
     output.extend_from_slice(&DHT.to_be_bytes());
 
@@ -543,7 +527,6 @@ fn write_huffman_table(output: &mut Vec<u8>, table_id: u8, bits: &[u8; 16], vals
     output.extend_from_slice(vals);
 }
 
-/// Write SOS (Start of Scan) marker for baseline JPEG.
 fn write_sos(output: &mut Vec<u8>, color_type: ColorType) {
     output.extend_from_slice(&SOS.to_be_bytes());
 
@@ -582,7 +565,6 @@ fn write_sos(output: &mut Vec<u8>, color_type: ColorType) {
     output.push(0); // Successive approximation
 }
 
-/// Write SOS marker for progressive JPEG scan.
 fn write_sos_progressive(output: &mut Vec<u8>, scan: &ScanSpec, color_type: ColorType) {
     output.extend_from_slice(&SOS.to_be_bytes());
 
@@ -617,7 +599,6 @@ fn write_sos_progressive(output: &mut Vec<u8>, scan: &ScanSpec, color_type: Colo
     let _ = color_type; // Used for validation in future
 }
 
-/// Build optimized Huffman tables by analyzing the image's quantized coefficients.
 fn build_optimized_huffman_tables(
     data: &[u8],
     width: u32,
@@ -761,7 +742,6 @@ fn category_i16(value: i16) -> u8 {
     }
 }
 
-/// Encode image using progressive JPEG (multiple scans).
 #[allow(clippy::too_many_arguments)]
 fn encode_progressive(
     output: &mut Vec<u8>,
@@ -872,6 +852,83 @@ fn compute_all_coefficients(
     }
 }
 
+/// Quantize a DCT block with optional trellis optimization.
+#[inline]
+fn quantize_dct(dct: &[f32; 64], table: &[f32; 64], use_trellis: bool) -> [i16; 64] {
+    if use_trellis {
+        trellis::trellis_quantize(dct, table, None)
+    } else {
+        quantize_block(dct, table)
+    }
+}
+
+/// Process a single 8x8 block and return quantized YCbCr coefficients.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn process_block_444(
+    data: &[u8],
+    width: usize,
+    height: usize,
+    block_x: usize,
+    block_y: usize,
+    color_type: ColorType,
+    quant_tables: &QuantizationTables,
+    use_trellis: bool,
+) -> ([i16; 64], [i16; 64], [i16; 64]) {
+    let (y_block, cb_block, cr_block) =
+        extract_block(data, width, height, block_x, block_y, color_type);
+
+    let y_quant = quantize_dct(
+        &dct_2d(&y_block),
+        &quant_tables.luminance_table,
+        use_trellis,
+    );
+    let cb_quant = quantize_dct(
+        &dct_2d(&cb_block),
+        &quant_tables.chrominance_table,
+        use_trellis,
+    );
+    let cr_quant = quantize_dct(
+        &dct_2d(&cr_block),
+        &quant_tables.chrominance_table,
+        use_trellis,
+    );
+
+    (y_quant, cb_quant, cr_quant)
+}
+
+/// Process a 4:2:0 MCU and return quantized coefficients.
+#[inline]
+fn process_mcu_420(
+    data: &[u8],
+    width: usize,
+    height: usize,
+    mcu_x: usize,
+    mcu_y: usize,
+    quant_tables: &QuantizationTables,
+    use_trellis: bool,
+) -> ([[i16; 64]; 4], [i16; 64], [i16; 64]) {
+    let (y_blocks, cb_block, cr_block) = extract_mcu_420(data, width, height, mcu_x, mcu_y);
+
+    let mut y_quants = [[0i16; 64]; 4];
+    for (i, y_block) in y_blocks.iter().enumerate() {
+        y_quants[i] = quantize_dct(&dct_2d(y_block), &quant_tables.luminance_table, use_trellis);
+    }
+
+    let cb_quant = quantize_dct(
+        &dct_2d(&cb_block),
+        &quant_tables.chrominance_table,
+        use_trellis,
+    );
+    let cr_quant = quantize_dct(
+        &dct_2d(&cr_block),
+        &quant_tables.chrominance_table,
+        use_trellis,
+    );
+
+    (y_quants, cb_quant, cr_quant)
+}
+
 /// Sequential implementation of coefficient computation.
 #[cfg_attr(feature = "parallel", allow(dead_code))]
 #[allow(clippy::type_complexity)]
@@ -884,89 +941,84 @@ fn compute_all_coefficients_sequential(
     quant_tables: &QuantizationTables,
     use_trellis: bool,
 ) -> (Vec<[i16; 64]>, Vec<[i16; 64]>, Vec<[i16; 64]>) {
-    let mut y_coeffs = Vec::new();
-    let mut cb_coeffs = Vec::new();
-    let mut cr_coeffs = Vec::new();
-
-    // Helper to quantize a block with optional trellis
-    let quantize_with_trellis = |dct: &[f32; 64], table: &[f32; 64]| -> [i16; 64] {
-        if use_trellis {
-            trellis::trellis_quantize(dct, table, None)
-        } else {
-            quantize_block(dct, table)
-        }
-    };
-
     match (color_type, subsampling) {
         (ColorType::Gray, _) => {
             let padded_width = (width + 7) & !7;
             let padded_height = (height + 7) & !7;
+            let block_count = (padded_width / 8) * (padded_height / 8);
+            let mut y_coeffs = Vec::with_capacity(block_count);
 
             for block_y in (0..padded_height).step_by(8) {
                 for block_x in (0..padded_width).step_by(8) {
                     let (y_block, _, _) =
                         extract_block(data, width, height, block_x, block_y, color_type);
-                    let y_dct = dct_2d(&y_block);
-                    let y_quant = quantize_with_trellis(&y_dct, &quant_tables.luminance_table);
+                    let y_quant = quantize_dct(
+                        &dct_2d(&y_block),
+                        &quant_tables.luminance_table,
+                        use_trellis,
+                    );
                     y_coeffs.push(y_quant);
                 }
             }
+            (y_coeffs, Vec::new(), Vec::new())
         }
         (_, Subsampling::S444) => {
             let padded_width = (width + 7) & !7;
             let padded_height = (height + 7) & !7;
+            let block_count = (padded_width / 8) * (padded_height / 8);
+            let mut y_coeffs = Vec::with_capacity(block_count);
+            let mut cb_coeffs = Vec::with_capacity(block_count);
+            let mut cr_coeffs = Vec::with_capacity(block_count);
 
             for block_y in (0..padded_height).step_by(8) {
                 for block_x in (0..padded_width).step_by(8) {
-                    let (y_block, cb_block, cr_block) =
-                        extract_block(data, width, height, block_x, block_y, color_type);
-
-                    let y_quant =
-                        quantize_with_trellis(&dct_2d(&y_block), &quant_tables.luminance_table);
-                    y_coeffs.push(y_quant);
-
-                    let cb_quant =
-                        quantize_with_trellis(&dct_2d(&cb_block), &quant_tables.chrominance_table);
-                    cb_coeffs.push(cb_quant);
-
-                    let cr_quant =
-                        quantize_with_trellis(&dct_2d(&cr_block), &quant_tables.chrominance_table);
-                    cr_coeffs.push(cr_quant);
+                    let (y, cb, cr) = process_block_444(
+                        data,
+                        width,
+                        height,
+                        block_x,
+                        block_y,
+                        color_type,
+                        quant_tables,
+                        use_trellis,
+                    );
+                    y_coeffs.push(y);
+                    cb_coeffs.push(cb);
+                    cr_coeffs.push(cr);
                 }
             }
+            (y_coeffs, cb_coeffs, cr_coeffs)
         }
         (_, Subsampling::S420) => {
             let padded_width_420 = (width + 15) & !15;
             let padded_height_420 = (height + 15) & !15;
+            let mcu_count = (padded_width_420 / 16) * (padded_height_420 / 16);
+            let mut y_coeffs = Vec::with_capacity(mcu_count * 4);
+            let mut cb_coeffs = Vec::with_capacity(mcu_count);
+            let mut cr_coeffs = Vec::with_capacity(mcu_count);
 
             for mcu_y in (0..padded_height_420).step_by(16) {
                 for mcu_x in (0..padded_width_420).step_by(16) {
-                    let (y_blocks, cb_block, cr_block) =
-                        extract_mcu_420(data, width, height, mcu_x, mcu_y);
-
-                    for y_block in &y_blocks {
-                        let y_quant =
-                            quantize_with_trellis(&dct_2d(y_block), &quant_tables.luminance_table);
-                        y_coeffs.push(y_quant);
-                    }
-
-                    let cb_quant =
-                        quantize_with_trellis(&dct_2d(&cb_block), &quant_tables.chrominance_table);
-                    cb_coeffs.push(cb_quant);
-
-                    let cr_quant =
-                        quantize_with_trellis(&dct_2d(&cr_block), &quant_tables.chrominance_table);
-                    cr_coeffs.push(cr_quant);
+                    let (y_quants, cb, cr) = process_mcu_420(
+                        data,
+                        width,
+                        height,
+                        mcu_x,
+                        mcu_y,
+                        quant_tables,
+                        use_trellis,
+                    );
+                    y_coeffs.extend_from_slice(&y_quants);
+                    cb_coeffs.push(cb);
+                    cr_coeffs.push(cr);
                 }
             }
+            (y_coeffs, cb_coeffs, cr_coeffs)
         }
     }
-
-    (y_coeffs, cb_coeffs, cr_coeffs)
 }
 
 /// Parallel implementation of coefficient computation using Rayon.
-/// Processes blocks in parallel for significant speedup on multi-core systems.
 #[cfg(feature = "parallel")]
 #[allow(clippy::type_complexity)]
 fn compute_all_coefficients_parallel(
@@ -980,44 +1032,26 @@ fn compute_all_coefficients_parallel(
 ) -> (Vec<[i16; 64]>, Vec<[i16; 64]>, Vec<[i16; 64]>) {
     use rayon::prelude::*;
 
-    /// Helper struct to hold block coordinates
-    struct BlockCoord {
-        x: usize,
-        y: usize,
-    }
-
-    // Helper to quantize a block with optional trellis
-    let quantize_with_trellis = |dct: &[f32; 64], table: &[f32; 64]| -> [i16; 64] {
-        if use_trellis {
-            trellis::trellis_quantize(dct, table, None)
-        } else {
-            quantize_block(dct, table)
-        }
-    };
-
     match (color_type, subsampling) {
         (ColorType::Gray, _) => {
             let padded_width = (width + 7) & !7;
             let padded_height = (height + 7) & !7;
 
-            // Collect block coordinates
-            let coords: Vec<BlockCoord> = (0..padded_height)
+            let coords: Vec<(usize, usize)> = (0..padded_height)
                 .step_by(8)
-                .flat_map(|y| {
-                    (0..padded_width)
-                        .step_by(8)
-                        .map(move |x| BlockCoord { x, y })
-                })
+                .flat_map(|y| (0..padded_width).step_by(8).map(move |x| (x, y)))
                 .collect();
 
-            // Process blocks in parallel
             let y_coeffs: Vec<[i16; 64]> = coords
                 .par_iter()
-                .map(|coord| {
+                .map(|&(block_x, block_y)| {
                     let (y_block, _, _) =
-                        extract_block(data, width, height, coord.x, coord.y, color_type);
-                    let y_dct = dct_2d(&y_block);
-                    quantize_with_trellis(&y_dct, &quant_tables.luminance_table)
+                        extract_block(data, width, height, block_x, block_y, color_type);
+                    quantize_dct(
+                        &dct_2d(&y_block),
+                        &quant_tables.luminance_table,
+                        use_trellis,
+                    )
                 })
                 .collect();
 
@@ -1027,93 +1061,52 @@ fn compute_all_coefficients_parallel(
             let padded_width = (width + 7) & !7;
             let padded_height = (height + 7) & !7;
 
-            // Collect block coordinates
-            let coords: Vec<BlockCoord> = (0..padded_height)
+            let coords: Vec<(usize, usize)> = (0..padded_height)
                 .step_by(8)
-                .flat_map(|y| {
-                    (0..padded_width)
-                        .step_by(8)
-                        .map(move |x| BlockCoord { x, y })
-                })
+                .flat_map(|y| (0..padded_width).step_by(8).map(move |x| (x, y)))
                 .collect();
 
-            // Process blocks in parallel, collecting all three channels
-            let results: Vec<([i16; 64], [i16; 64], [i16; 64])> = coords
+            let results: Vec<_> = coords
                 .par_iter()
-                .map(|coord| {
-                    let (y_block, cb_block, cr_block) =
-                        extract_block(data, width, height, coord.x, coord.y, color_type);
-
-                    let y_quant =
-                        quantize_with_trellis(&dct_2d(&y_block), &quant_tables.luminance_table);
-                    let cb_quant =
-                        quantize_with_trellis(&dct_2d(&cb_block), &quant_tables.chrominance_table);
-                    let cr_quant =
-                        quantize_with_trellis(&dct_2d(&cr_block), &quant_tables.chrominance_table);
-
-                    (y_quant, cb_quant, cr_quant)
+                .map(|&(block_x, block_y)| {
+                    process_block_444(
+                        data,
+                        width,
+                        height,
+                        block_x,
+                        block_y,
+                        color_type,
+                        quant_tables,
+                        use_trellis,
+                    )
                 })
                 .collect();
 
-            // Unzip results
-            let mut y_coeffs = Vec::with_capacity(results.len());
-            let mut cb_coeffs = Vec::with_capacity(results.len());
-            let mut cr_coeffs = Vec::with_capacity(results.len());
-
-            for (y, cb, cr) in results {
-                y_coeffs.push(y);
-                cb_coeffs.push(cb);
-                cr_coeffs.push(cr);
-            }
-
+            let (y_coeffs, cb_coeffs, cr_coeffs) = unzip3(results);
             (y_coeffs, cb_coeffs, cr_coeffs)
         }
         (_, Subsampling::S420) => {
             let padded_width_420 = (width + 15) & !15;
             let padded_height_420 = (height + 15) & !15;
 
-            // Collect MCU coordinates
-            let coords: Vec<BlockCoord> = (0..padded_height_420)
+            let coords: Vec<(usize, usize)> = (0..padded_height_420)
                 .step_by(16)
-                .flat_map(|y| {
-                    (0..padded_width_420)
-                        .step_by(16)
-                        .map(move |x| BlockCoord { x, y })
-                })
+                .flat_map(|y| (0..padded_width_420).step_by(16).map(move |x| (x, y)))
                 .collect();
 
-            // Process MCUs in parallel
-            // Each MCU produces 4 Y blocks + 1 Cb + 1 Cr
-            let results: Vec<([[i16; 64]; 4], [i16; 64], [i16; 64])> = coords
+            let results: Vec<_> = coords
                 .par_iter()
-                .map(|coord| {
-                    let (y_blocks, cb_block, cr_block) =
-                        extract_mcu_420(data, width, height, coord.x, coord.y);
-
-                    let mut y_quants = [[0i16; 64]; 4];
-                    for (i, y_block) in y_blocks.iter().enumerate() {
-                        y_quants[i] =
-                            quantize_with_trellis(&dct_2d(y_block), &quant_tables.luminance_table);
-                    }
-
-                    let cb_quant =
-                        quantize_with_trellis(&dct_2d(&cb_block), &quant_tables.chrominance_table);
-                    let cr_quant =
-                        quantize_with_trellis(&dct_2d(&cr_block), &quant_tables.chrominance_table);
-
-                    (y_quants, cb_quant, cr_quant)
+                .map(|&(mcu_x, mcu_y)| {
+                    process_mcu_420(data, width, height, mcu_x, mcu_y, quant_tables, use_trellis)
                 })
                 .collect();
 
-            // Unzip and flatten results
             let mut y_coeffs = Vec::with_capacity(results.len() * 4);
             let mut cb_coeffs = Vec::with_capacity(results.len());
             let mut cr_coeffs = Vec::with_capacity(results.len());
 
             for (y_quants, cb, cr) in results {
-                for y in y_quants {
-                    y_coeffs.push(y);
-                }
+                y_coeffs.extend_from_slice(&y_quants);
                 cb_coeffs.push(cb);
                 cr_coeffs.push(cr);
             }
@@ -1123,7 +1116,22 @@ fn compute_all_coefficients_parallel(
     }
 }
 
-/// Encode DC scan for progressive JPEG.
+/// Unzip a vector of 3-tuples into three vectors.
+#[cfg(feature = "parallel")]
+#[inline]
+fn unzip3<A, B, C>(iter: Vec<(A, B, C)>) -> (Vec<A>, Vec<B>, Vec<C>) {
+    let len = iter.len();
+    let mut a = Vec::with_capacity(len);
+    let mut b = Vec::with_capacity(len);
+    let mut c = Vec::with_capacity(len);
+    for (x, y, z) in iter {
+        a.push(x);
+        b.push(y);
+        c.push(z);
+    }
+    (a, b, c)
+}
+
 fn encode_dc_scan(
     writer: &mut BitWriterMsb,
     scan: &ScanSpec,
@@ -1187,7 +1195,6 @@ fn encode_dc_scan(
     }
 }
 
-/// Encode value bits for DC coefficient.
 fn encode_dc_value(value: i16) -> (u16, u8) {
     let cat = category_i16(value);
     if cat == 0 {
@@ -1203,7 +1210,6 @@ fn encode_dc_value(value: i16) -> (u16, u8) {
     (bits & ((1 << cat) - 1), cat)
 }
 
-/// Encode first AC scan for progressive JPEG.
 fn encode_ac_first_scan(
     writer: &mut BitWriterMsb,
     scan: &ScanSpec,
@@ -1248,7 +1254,6 @@ fn encode_ac_first_scan(
     }
 }
 
-/// Encode AC refinement scan for progressive JPEG.
 fn encode_ac_refine_scan(
     writer: &mut BitWriterMsb,
     scan: &ScanSpec,
@@ -1293,7 +1298,6 @@ fn encode_ac_refine_scan(
     }
 }
 
-/// Encode the image scan data.
 #[allow(clippy::too_many_arguments)]
 fn encode_scan(
     output: &mut Vec<u8>,
@@ -1452,7 +1456,6 @@ fn encode_scan(
     output.extend_from_slice(&writer.finish());
 }
 
-/// Extract an 8x8 block from the image and convert to YCbCr.
 fn extract_block(
     data: &[u8],
     width: usize,
@@ -1496,7 +1499,6 @@ fn extract_block(
     (y_block, cb_block, cr_block)
 }
 
-/// Extract a 4:2:0 MCU (16x16 luma -> 4 blocks, 8x8 chroma) starting at (mcu_x, mcu_y).
 fn extract_mcu_420(
     data: &[u8],
     width: usize,

@@ -24,56 +24,24 @@ Comprehensive benchmark comparing comprs against all major alternatives:
 - **Lossy PNG**: Quantization comparison (comprs vs imagequant vs pngquant)
 - **External tools**: oxipng, mozjpeg, pngquant (if installed)
 - **Rust alternatives**: image crate, flate2, imagequant
+- **Kodak images**: Real photographic images for realistic benchmarks
 - **Summary tables**: WASM binary sizes, output sizes, timing
 
 ```bash
 cargo bench --bench comparison
 ```
 
-### encode_benchmark
-
-Focused PNG/JPEG encoding benchmarks:
-
-- Tests gradient images at 64x64, 128x128, 256x256, 512x512
-- Compares comprs vs image crate
-- Tests JPEG quality levels and subsampling options
-
-```bash
-cargo bench --bench encode_benchmark
-```
-
-### jpeg_mozjpeg
-
-JPEG-specific comparison with mozjpeg:
-
-- All three comprs presets vs mozjpeg
-- Size and speed comparison
-- Requires mozjpeg installed (`brew install mozjpeg`)
-
-```bash
-cargo bench --bench jpeg_mozjpeg
-```
-
-### deflate_micro
-
-DEFLATE compression micro-benchmarks:
-
-- Compares comprs vs flate2 on 1 MiB payloads
-- Tests compressible and random data
-- Reports throughput in bytes/second
-
-```bash
-cargo bench --bench deflate_micro
-```
-
 ### components
 
-Component-level benchmarks for internal algorithms:
+Component-level micro-benchmarks for internal optimization work:
 
-- DCT (Discrete Cosine Transform)
-- Huffman encoding/decoding
 - LZ77 compression
+- Huffman encoding (fixed and dynamic)
+- PNG filters (Adaptive, AdaptiveFast)
 - CRC32/Adler32 checksums
+- DEFLATE variants (standard vs packed tokens)
+
+Use this when optimizing specific compression components:
 
 ```bash
 cargo bench --bench components
@@ -119,22 +87,6 @@ let png = png::encode_with_options(&pixels, width, height, ColorType::Rgb, &opts
 - `Off`: Lossless PNG (default)
 - `Auto`: Apply quantization when beneficial (moderate color count)
 - `Force`: Always quantize RGB/RGBA images
-
-### Comparison Tools
-
-| Tool | Type | Description |
-|------|------|-------------|
-| comprs | Rust | Built-in median-cut quantization |
-| imagequant | Rust crate | libimagequant bindings (high quality) |
-| pngquant | CLI | Reference tool, excellent quality |
-
-### Expected Results
-
-Lossy PNG compression typically achieves 50-80% size reduction compared to lossless:
-
-- **comprs**: Fast, good quality, ~70% smaller
-- **imagequant**: Slower, excellent quality, ~75% smaller
-- **pngquant**: Reference quality, ~75% smaller
 
 ## Benchmark Results
 

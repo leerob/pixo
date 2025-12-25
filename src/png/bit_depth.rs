@@ -15,7 +15,6 @@ pub fn reduce_bit_depth(data: &[u8], color_type: ColorType) -> Option<u8> {
     }
 }
 
-/// Determine bit depth for a palette of given length.
 pub fn palette_bit_depth(len: usize) -> u8 {
     if len == 0 {
         8
@@ -46,7 +45,6 @@ fn reduce_gray_bit_depth(data: &[u8]) -> Option<u8> {
     }
 }
 
-/// Pack 8-bit grayscale samples into smaller bit depths.
 pub fn pack_gray(data: &[u8], bit_depth: u8) -> Vec<u8> {
     match bit_depth {
         1 => pack_bits(data, 1),
@@ -57,7 +55,6 @@ pub fn pack_gray(data: &[u8], bit_depth: u8) -> Vec<u8> {
     }
 }
 
-/// Pack indexed pixels (8-bit indices) into smaller bit depths.
 pub fn pack_indexed(data: &[u8], bit_depth: u8) -> Vec<u8> {
     match bit_depth {
         1 => pack_bits(data, 1),

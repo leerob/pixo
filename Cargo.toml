@@ -53,15 +53,11 @@ flate2 = "1.0"
 url = { version = "=2.4.1", default-features = true }
 imagequant = "4"
 jpeg-decoder = "0.3"
+jpeg-encoder = { version = "0.6", features = ["simd"] }
+lodepng = "3"
+libdeflater = "1"
+zopfli = "0.8"
 
-
-[[bench]]
-name = "encode_benchmark"
-harness = false
-
-[[bench]]
-name = "deflate_micro"
-harness = false
 
 [[bench]]
 name = "components"
@@ -79,6 +75,7 @@ harness = false
 name = "decode_benchmark"
 harness = false
 
+
 [profile.release]
 lto = true              # Link-time optimization (merges all code, removes unused)
 opt-level = "z"         # Optimize for size
@@ -92,3 +89,11 @@ strip = true            # Strip symbols from binary
 panic = "unwind"
 lto = false             # Faster compilation for benchmarks
 opt-level = 3           # Optimize for speed, not size
+
+[lints.rust]
+missing_docs = "allow"
+unknown_lints = "allow"
+
+[lints.clippy]
+needless_range_loop = "allow"
+manual_is_multiple_of = "allow"

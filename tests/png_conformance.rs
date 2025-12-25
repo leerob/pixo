@@ -456,6 +456,113 @@ fn test_png_rejects_image_too_large() {
     assert!(matches!(err, Error::ImageTooLarge { .. }));
 }
 
+// ============================================================================
+// Extended Property Tests - Edge Cases
+// ============================================================================
+
+/// Verify that zero dimensions are rejected for all color types.
+#[test]
+fn test_png_rejects_zero_dimensions() {
+    let color_types = [
+        ColorType::Gray,
+        ColorType::GrayAlpha,
+        ColorType::Rgb,
+        ColorType::Rgba,
+    ];
+
+    for ct in &color_types {
+        // Zero width
+        let err = png::encode(&[0u8; 100], 0, 10, *ct);
+        assert!(err.is_err(), "Should reject zero width for {:?}", ct);
+
+        // Zero height
+        let err = png::encode(&[0u8; 100], 10, 0, *ct);
+        assert!(err.is_err(), "Should reject zero height for {:?}", ct);
+
+        // Both zero
+        let err = png::encode(&[], 0, 0, *ct);
+        assert!(err.is_err(), "Should reject zero dimensions for {:?}", ct);
+    }
+}
+
+// Property test: any valid image dimensions should produce decodable output.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(16))]
+    #[test]
+    fn prop_png_valid_dimensions_always_succeed(
+        width in 1u32..128,
+        height in 1u32..128,
+        color_type in prop_oneof![
+            Just(ColorType::Gray),
+            Just(ColorType::GrayAlpha),
+            Just(ColorType::Rgb),
+            Just(ColorType::Rgba),
+        ],
+        seed in any::<u64>(),
+    ) {
+        let bpp = color_type.bytes_per_pixel();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut pixels = vec![0u8; (width * height) as usize * bpp];
+        rng.fill(pixels.as_mut_slice());
+
+        // Should always succeed with valid dimensions
+        let encoded = png::encode(&pixels, width, height, color_type)
+            .expect("encoding should succeed");
+
+        // Should produce valid PNG
+        prop_assert_eq!(&encoded[0..8], &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    }
+}
+
+// Property test: encoding with all builder options should produce valid output.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(8))]
+    #[test]
+    fn prop_png_builder_options_produce_valid_output(
+        width in 8u32..64,
+        height in 8u32..64,
+        compression_level in 1u8..=9,
+        filter_idx in 0u8..8,
+        optimize_alpha in any::<bool>(),
+        reduce_color_type in any::<bool>(),
+        strip_metadata in any::<bool>(),
+        seed in any::<u64>(),
+    ) {
+        let filter_strategy = match filter_idx {
+            0 => png::FilterStrategy::None,
+            1 => png::FilterStrategy::Sub,
+            2 => png::FilterStrategy::Up,
+            3 => png::FilterStrategy::Average,
+            4 => png::FilterStrategy::Paeth,
+            5 => png::FilterStrategy::MinSum,
+            6 => png::FilterStrategy::Adaptive,
+            _ => png::FilterStrategy::AdaptiveFast,
+        };
+
+        let options = png::PngOptions::builder()
+            .compression_level(compression_level)
+            .filter_strategy(filter_strategy)
+            .optimize_alpha(optimize_alpha)
+            .reduce_color_type(reduce_color_type)
+            .strip_metadata(strip_metadata)
+            .build();
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut pixels = vec![0u8; (width * height * 4) as usize];
+        rng.fill(pixels.as_mut_slice());
+
+        let encoded = png::encode_with_options(&pixels, width, height, ColorType::Rgba, &options)
+            .expect("encoding should succeed");
+
+        // Verify PNG signature
+        prop_assert_eq!(&encoded[0..8], &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+        // Verify it decodes
+        let decoded = image::load_from_memory(&encoded).expect("decode");
+        prop_assert_eq!(decoded.dimensions(), (width, height));
+    }
+}
+
 /// Regression test: ensure photographic images don't produce excessively large output.
 ///
 /// This test uses a real-world photo (rocket.png) that previously triggered a bug

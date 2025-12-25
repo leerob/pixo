@@ -24,7 +24,6 @@ pub struct ScanSpec {
 }
 
 impl ScanSpec {
-    /// Create a new scan specification.
     pub fn new(components: Vec<u8>, ss: u8, se: u8, ah: u8, al: u8) -> Self {
         Self {
             components,
@@ -35,17 +34,14 @@ impl ScanSpec {
         }
     }
 
-    /// Check if this is a DC scan (ss == 0 && se == 0).
     pub fn is_dc_scan(&self) -> bool {
         self.ss == 0 && self.se == 0
     }
 
-    /// Check if this is a first scan (ah == 0).
     pub fn is_first_scan(&self) -> bool {
         self.ah == 0
     }
 
-    /// Check if this is a refinement scan (ah > 0).
     pub fn is_refinement_scan(&self) -> bool {
         self.ah > 0
     }
@@ -119,7 +115,6 @@ pub fn encode_dc_first(
     }
 }
 
-/// Encode DC coefficient refinement.
 pub fn encode_dc_refine(writer: &mut BitWriterMsb, dc_coef: i16, al: u8) {
     // Output the bit at position `al`
     let bit = ((dc_coef.unsigned_abs() >> al) & 1) as u32;
@@ -202,7 +197,6 @@ pub fn encode_ac_first(
     }
 }
 
-/// Encode AC coefficient refinement scan.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_ac_refine(
     writer: &mut BitWriterMsb,
@@ -299,7 +293,6 @@ pub fn encode_ac_refine(
     }
 }
 
-/// Flush accumulated EOB run (public interface).
 pub fn flush_eob_run_public(
     writer: &mut BitWriterMsb,
     eob_run: &mut u16,
@@ -309,7 +302,6 @@ pub fn flush_eob_run_public(
     flush_eob_run(writer, eob_run, tables, is_luminance);
 }
 
-/// Flush accumulated EOB run.
 fn flush_eob_run(
     writer: &mut BitWriterMsb,
     eob_run: &mut u16,
@@ -344,7 +336,6 @@ fn flush_eob_run(
     *eob_run = 0;
 }
 
-/// Get DC Huffman code.
 pub fn get_dc_code(tables: &HuffmanTables, category: u8, is_luminance: bool) -> (u16, u8) {
     if is_luminance {
         get_code_from_table(&tables.dc_lum_bits, &tables.dc_lum_vals, category)
@@ -353,7 +344,6 @@ pub fn get_dc_code(tables: &HuffmanTables, category: u8, is_luminance: bool) -> 
     }
 }
 
-/// Get AC Huffman code.
 fn get_ac_code(tables: &HuffmanTables, rs: u8, is_luminance: bool) -> (u16, u8) {
     if is_luminance {
         get_code_from_table(&tables.ac_lum_bits, &tables.ac_lum_vals, rs)
@@ -362,7 +352,6 @@ fn get_ac_code(tables: &HuffmanTables, rs: u8, is_luminance: bool) -> (u16, u8) 
     }
 }
 
-/// Build code from bits/vals table.
 fn get_code_from_table(bits: &[u8; 16], vals: &[u8], symbol: u8) -> (u16, u8) {
     let mut code = 0u16;
     let mut val_idx = 0;

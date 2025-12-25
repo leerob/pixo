@@ -217,3 +217,141 @@ jobs:
           name: test-results
           path: web/test-results/
           retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Benchmarks: Run comparison benchmarks (main branch only)
+  # ─────────────────────────────────────────────────────────────────────────────
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    needs: changes
+    # Only run on main branch pushes to avoid slowing down PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: benchmarks
+
+      # Cache external compression tools
+      - name: Cache external tools
+        uses: actions/cache@v4
+        id: tools-cache
+        with:
+          path: |
+            ~/.local/bin
+            /usr/local/bin/cjpeg
+            /usr/local/bin/pngquant
+            /usr/local/bin/oxipng
+          key: compression-tools-v2-${{ runner.os }}
+
+      # Install mozjpeg (cjpeg)
+      - name: Install mozjpeg
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake nasm libpng-dev
+          git clone --depth 1 https://github.com/mozilla/mozjpeg.git /tmp/mozjpeg
+          cd /tmp/mozjpeg
+          mkdir build && cd build
+          # Disable shared libs to avoid PIC issues with SIMD assembly on x86_64
+          cmake -G"Unix Makefiles" -DCMAKE_INSTALL_PREFIX=/usr/local -DENABLE_SHARED=FALSE ..
+          make -j$(nproc)
+          sudo make install
+          echo "mozjpeg installed: $(cjpeg -version 2>&1 | head -1 || echo 'installed')"
+
+      # Install pngquant
+      - name: Install pngquant
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y pngquant || {
+            # Build from source if apt version is too old
+            sudo apt-get install -y libpng-dev
+            git clone --depth 1 https://github.com/kornelski/pngquant.git /tmp/pngquant
+            cd /tmp/pngquant
+            cargo build --release
+            sudo cp target/release/pngquant /usr/local/bin/
+          }
+          pngquant --version
+
+      # Install oxipng
+      - name: Install oxipng
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install oxipng --locked
+          oxipng --version
+
+      # Verify tools are available
+      - name: Verify tools
+        run: |
+          echo "Checking installed tools..."
+          which cjpeg && cjpeg -version 2>&1 | head -1 || echo "cjpeg not found (optional)"
+          which pngquant && pngquant --version || echo "pngquant not found (optional)"
+          which oxipng && oxipng --version || echo "oxipng not found (optional)"
+          echo "Tools check complete"
+
+      # Run benchmarks
+      - name: Run comparison benchmarks
+        run: |
+          cargo bench --bench comparison -- --noplot 2>&1 | tee benchmark-output.txt
+        env:
+          # Ensure consistent benchmark environment
+          RUSTFLAGS: "-C target-cpu=native"
+
+      # Extract and report key metrics
+      - name: Report benchmark summary
+        run: |
+          echo "## Benchmark Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### PNG Encoding" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -A2 "png_encode" benchmark-output.txt | head -20 >> $GITHUB_STEP_SUMMARY || echo "No PNG results found"
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### JPEG Encoding" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -A2 "jpeg_encode" benchmark-output.txt | head -20 >> $GITHUB_STEP_SUMMARY || echo "No JPEG results found"
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      # Upload benchmark results
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            target/criterion/
+            benchmark-output.txt
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Cross-platform: Test on macOS (ARM64/NEON)
+  # ─────────────────────────────────────────────────────────────────────────────
+  macos:
+    name: macOS (ARM64)
+    runs-on: macos-latest
+    needs: changes
+    # Only run on main branch to save CI minutes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: macos-ci
+
+      - name: Run tests
+        run: cargo test --all-features
+
+      - name: Verify NEON SIMD works
+        run: |
+          # Run a quick benchmark to verify SIMD acceleration
+          cargo bench --bench components -- --noplot "adler32" 2>&1 | head -30

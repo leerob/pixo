@@ -95,10 +95,7 @@ impl Default for QuantizationTables {
     }
 }
 
-/// Quantize a DCT block.
-///
-/// Divides each DCT coefficient by the corresponding quantization value
-/// and rounds to the nearest integer.
+/// Divides each coefficient by the corresponding quantization value.
 pub fn quantize_block(dct: &[f32; 64], quant_table: &[f32; 64]) -> [i16; 64] {
     let mut result = [0i16; 64];
     for i in 0..64 {
@@ -107,7 +104,6 @@ pub fn quantize_block(dct: &[f32; 64], quant_table: &[f32; 64]) -> [i16; 64] {
     result
 }
 
-/// Reorder a block from natural order to zigzag order.
 pub fn zigzag_reorder(block: &[i16; 64]) -> [i16; 64] {
     let mut result = [0i16; 64];
     for i in 0..64 {

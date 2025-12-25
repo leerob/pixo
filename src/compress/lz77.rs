@@ -54,13 +54,11 @@ impl PackedToken {
     const LITERAL_FLAG: u32 = 0x8000_0000;
 
     #[inline]
-    /// Create a packed literal token.
     pub fn literal(byte: u8) -> Self {
         Self(Self::LITERAL_FLAG | byte as u32)
     }
 
     #[inline]
-    /// Create a packed match token.
     pub fn match_(length: u16, distance: u16) -> Self {
         debug_assert!(distance >= 1, "Distance must be at least 1");
         // Store (distance - 1) so range 1-32768 becomes 0-32767, fitting in 15 bits.
@@ -71,13 +69,11 @@ impl PackedToken {
     }
 
     #[inline]
-    /// Returns true if this is a literal.
     pub fn is_literal(self) -> bool {
         (self.0 & Self::LITERAL_FLAG) != 0
     }
 
     #[inline]
-    /// Get the literal byte if present.
     pub fn as_literal(self) -> Option<u8> {
         if self.is_literal() {
             Some(self.0 as u8)
@@ -87,7 +83,6 @@ impl PackedToken {
     }
 
     #[inline]
-    /// Get (length, distance) if this is a match.
     pub fn as_match(self) -> Option<(u16, u16)> {
         if self.is_literal() {
             None
@@ -168,10 +163,7 @@ pub struct Lz77Compressor {
 }
 
 impl Lz77Compressor {
-    /// Create a new LZ77 compressor.
-    ///
-    /// # Arguments
-    /// * `level` - Compression level 1-9 (higher = better compression, slower)
+    /// Level 1-9: higher = better compression, slower.
     pub fn new(level: u8) -> Self {
         let level = level.clamp(1, 9);
 
@@ -200,14 +192,13 @@ impl Lz77Compressor {
         }
     }
 
-    /// Compress data and return LZ77 tokens.
     pub fn compress(&mut self, data: &[u8]) -> Vec<Token> {
         let mut tokens = Vec::with_capacity(data.len());
         self.compress_into_sink(data, &mut tokens);
         tokens
     }
 
-    /// Compress data into a provided token buffer, reusing allocations.
+    /// Reuses the provided token buffer allocation.
     pub fn compress_into(&mut self, data: &[u8], tokens: &mut Vec<Token>) {
         self.compress_into_sink(data, tokens);
     }
@@ -331,21 +322,18 @@ impl Lz77Compressor {
         }
     }
 
-    /// Compress data and return packed tokens (4 bytes each) for cache-friendly encoding.
-    /// This does not change the parsing—only the representation of tokens.
+    /// Returns packed tokens (4 bytes each) for cache-friendly encoding.
     pub fn compress_packed(&mut self, data: &[u8]) -> Vec<PackedToken> {
         let mut tokens = Vec::with_capacity(data.len());
         self.compress_into_sink(data, &mut tokens);
         tokens
     }
 
-    /// Compress data into a provided packed token buffer, reusing allocations.
-    /// Semantics match `compress`, but outputs `PackedToken` instead of `Token`.
+    /// Reuses the provided packed token buffer allocation.
     pub fn compress_packed_into(&mut self, data: &[u8], tokens: &mut Vec<PackedToken>) {
         self.compress_into_sink(data, tokens);
     }
 
-    /// Find the best match at the given position.
     fn find_best_match(
         &self,
         data: &[u8],
@@ -425,8 +413,7 @@ impl Lz77Compressor {
         }
     }
 
-    /// Calculate match length between two positions.
-    /// Uses SIMD (when available) or multi-byte comparison for better performance.
+    /// Uses SIMD when available.
     #[inline(always)]
     fn match_length(&self, data: &[u8], pos1: usize, pos2: usize) -> usize {
         let max_len = (data.len() - pos2).min(MAX_MATCH_LENGTH);
@@ -442,7 +429,6 @@ impl Lz77Compressor {
         }
     }
 
-    /// Scalar implementation of match length comparison.
     #[cfg(not(feature = "simd"))]
     #[inline]
     fn match_length_scalar(data: &[u8], pos1: usize, pos2: usize, max_len: usize) -> usize {
@@ -476,7 +462,6 @@ impl Lz77Compressor {
         length
     }
 
-    /// Update hash table for a position.
     #[inline(always)]
     fn update_hash(&mut self, data: &[u8], pos: usize) {
         if pos + 3 >= data.len() {
@@ -770,13 +755,11 @@ impl CostModel {
         }
     }
 
-    /// Compute the bit cost of emitting a literal.
     #[inline]
     pub fn literal_cost(&self, byte: u8) -> f32 {
         self.lit_len_costs[byte as usize]
     }
 
-    /// Compute the bit cost of emitting a match (length + distance).
     #[inline]
     pub fn match_cost(&self, length: u16, distance: u16) -> f32 {
         // Get length symbol (257-285) and extra bits

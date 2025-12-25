@@ -71,12 +71,10 @@ pub struct Crc32 {
 }
 
 impl Crc32 {
-    /// Create a new CRC32 calculator.
     pub fn new() -> Self {
         Self { crc: 0xFFFFFFFF }
     }
 
-    /// Update the CRC with more data.
     #[inline]
     pub fn update(&mut self, data: &[u8]) {
         let tables = &*CRC_TABLES;
@@ -86,7 +84,6 @@ impl Crc32 {
         }
     }
 
-    /// Finalize and return the CRC value.
     #[inline]
     #[must_use]
     pub fn finalize(self) -> u32 {

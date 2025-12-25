@@ -1,7 +1,205 @@
-//! x86_64 SIMD implementations using SSE2, SSSE3, and SSE4.2.
+//! x86_64 SIMD implementations using SSE2, SSSE3, SSE4.2, and PCLMULQDQ.
 
 use crate::simd::fallback::fallback_paeth_predictor;
 use std::arch::x86_64::*;
+
+// ============================================================================
+// CRC32 using PCLMULQDQ (carry-less multiplication)
+// ============================================================================
+
+/// Pre-computed constants for CRC32 using the ISO-HDLC polynomial (0x04C11DB7).
+/// These are the "folding" constants used for PCLMULQDQ-based CRC computation.
+mod crc32_constants {
+    /// Fold by 4 constants (for 64-byte chunks)
+    pub const K1K2: (u64, u64) = (0x154442bd4, 0x1c6e41596);
+    /// Fold by 1 constants (for 16-byte chunks)
+    pub const K3K4: (u64, u64) = (0x1751997d0, 0x0ccaa009e);
+    /// Final reduction constants
+    pub const K5K6: (u64, u64) = (0x163cd6124, 0x1db710640);
+    /// Barrett reduction constant and polynomial
+    pub const POLY_MU: (u64, u64) = (0x1f7011641, 0x1db710641);
+}
+
+/// Compute CRC32 using PCLMULQDQ instruction for the ISO-HDLC polynomial.
+///
+/// This implementation uses carry-less multiplication to compute CRC32
+/// with the correct polynomial (0x04C11DB7) required by PNG/zlib.
+///
+/// # Safety
+/// Caller must ensure PCLMULQDQ and SSE4.1 are available on the current CPU.
+#[target_feature(enable = "pclmulqdq", enable = "sse4.1")]
+pub unsafe fn crc32_pclmulqdq(data: &[u8]) -> u32 {
+    // For small inputs, use the scalar fallback
+    if data.len() < 64 {
+        return crate::simd::fallback::crc32(data);
+    }
+
+    let mut crc = !0u32;
+    let mut remaining = data;
+
+    // Align to 16-byte boundary if needed (process bytes one at a time)
+    let align_offset = remaining.as_ptr().align_offset(16);
+    if align_offset > 0 && align_offset <= remaining.len() {
+        for &byte in &remaining[..align_offset] {
+            crc = crc32_table_byte(crc, byte);
+        }
+        remaining = &remaining[align_offset..];
+    }
+
+    // Need at least 64 bytes for the folding loop
+    if remaining.len() >= 64 {
+        // Initialize four 128-bit accumulators with the first 64 bytes XORed with CRC
+        let mut x0 = _mm_loadu_si128(remaining.as_ptr() as *const __m128i);
+        let mut x1 = _mm_loadu_si128(remaining.as_ptr().add(16) as *const __m128i);
+        let mut x2 = _mm_loadu_si128(remaining.as_ptr().add(32) as *const __m128i);
+        let mut x3 = _mm_loadu_si128(remaining.as_ptr().add(48) as *const __m128i);
+
+        // XOR the CRC into the first accumulator
+        let crc_xmm = _mm_cvtsi32_si128(crc as i32);
+        x0 = _mm_xor_si128(x0, crc_xmm);
+        remaining = &remaining[64..];
+
+        // Load fold-by-4 constants
+        let k1k2 = _mm_set_epi64x(
+            crc32_constants::K1K2.1 as i64,
+            crc32_constants::K1K2.0 as i64,
+        );
+
+        // Fold 64 bytes at a time
+        while remaining.len() >= 64 {
+            x0 = fold_16(
+                x0,
+                _mm_loadu_si128(remaining.as_ptr() as *const __m128i),
+                k1k2,
+            );
+            x1 = fold_16(
+                x1,
+                _mm_loadu_si128(remaining.as_ptr().add(16) as *const __m128i),
+                k1k2,
+            );
+            x2 = fold_16(
+                x2,
+                _mm_loadu_si128(remaining.as_ptr().add(32) as *const __m128i),
+                k1k2,
+            );
+            x3 = fold_16(
+                x3,
+                _mm_loadu_si128(remaining.as_ptr().add(48) as *const __m128i),
+                k1k2,
+            );
+            remaining = &remaining[64..];
+        }
+
+        // Fold down to a single 128-bit value
+        let k3k4 = _mm_set_epi64x(
+            crc32_constants::K3K4.1 as i64,
+            crc32_constants::K3K4.0 as i64,
+        );
+
+        x0 = fold_16(x0, x1, k3k4);
+        x0 = fold_16(x0, x2, k3k4);
+        x0 = fold_16(x0, x3, k3k4);
+
+        // Fold remaining 16-byte chunks
+        while remaining.len() >= 16 {
+            let next = _mm_loadu_si128(remaining.as_ptr() as *const __m128i);
+            x0 = fold_16(x0, next, k3k4);
+            remaining = &remaining[16..];
+        }
+
+        // Final reduction from 128 bits to 32 bits
+        crc = reduce_128_to_32(x0);
+    }
+
+    // Process remaining bytes with scalar code
+    for &byte in remaining {
+        crc = crc32_table_byte(crc, byte);
+    }
+
+    !crc
+}
+
+/// Fold 16 bytes into the accumulator using PCLMULQDQ.
+#[inline]
+#[target_feature(enable = "pclmulqdq")]
+unsafe fn fold_16(acc: __m128i, data: __m128i, k: __m128i) -> __m128i {
+    // Multiply low 64 bits by k[0]
+    let lo = _mm_clmulepi64_si128(acc, k, 0x00);
+    // Multiply high 64 bits by k[1]
+    let hi = _mm_clmulepi64_si128(acc, k, 0x11);
+    // XOR together with new data
+    _mm_xor_si128(_mm_xor_si128(lo, hi), data)
+}
+
+/// Reduce 128-bit value to 32-bit CRC using Barrett reduction.
+#[inline]
+#[target_feature(enable = "pclmulqdq", enable = "sse4.1")]
+unsafe fn reduce_128_to_32(x: __m128i) -> u32 {
+    let k5k6 = _mm_set_epi64x(
+        crc32_constants::K5K6.1 as i64,
+        crc32_constants::K5K6.0 as i64,
+    );
+    let poly_mu = _mm_set_epi64x(
+        crc32_constants::POLY_MU.1 as i64,
+        crc32_constants::POLY_MU.0 as i64,
+    );
+
+    // Fold 128 -> 64 bits
+    let lo = _mm_clmulepi64_si128(x, k5k6, 0x00);
+    let hi = _mm_srli_si128(x, 8);
+    let folded = _mm_xor_si128(lo, hi);
+
+    // Fold 64 -> 32 bits
+    let lo32 = _mm_clmulepi64_si128(
+        _mm_and_si128(folded, _mm_set_epi32(0, 0, 0, -1)),
+        k5k6,
+        0x10,
+    );
+    let hi32 = _mm_srli_si128(folded, 4);
+    let folded32 = _mm_xor_si128(lo32, hi32);
+
+    // Barrett reduction
+    let t1 = _mm_clmulepi64_si128(
+        _mm_and_si128(folded32, _mm_set_epi32(0, 0, 0, -1)),
+        poly_mu,
+        0x00,
+    );
+    let t2 = _mm_clmulepi64_si128(_mm_and_si128(t1, _mm_set_epi32(0, 0, 0, -1)), poly_mu, 0x10);
+    let result = _mm_xor_si128(folded32, t2);
+
+    _mm_extract_epi32(result, 1) as u32
+}
+
+/// CRC32 table lookup for a single byte.
+#[inline]
+fn crc32_table_byte(crc: u32, byte: u8) -> u32 {
+    const CRC_TABLE: [u32; 256] = {
+        let mut table = [0u32; 256];
+        let mut i = 0;
+        while i < 256 {
+            let mut c = i as u32;
+            let mut j = 0;
+            while j < 8 {
+                if c & 1 != 0 {
+                    c = (c >> 1) ^ 0xEDB88320;
+                } else {
+                    c >>= 1;
+                }
+                j += 1;
+            }
+            table[i] = c;
+            i += 1;
+        }
+        table
+    };
+
+    let index = ((crc ^ byte as u32) & 0xFF) as usize;
+    (crc >> 8) ^ CRC_TABLE[index]
+}
+
+// ============================================================================
+// Adler-32 Implementations
+// ============================================================================
 
 /// Compute Adler-32 checksum using SSSE3 instructions.
 ///

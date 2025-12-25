@@ -25,6 +25,7 @@ Comprehensive guides explaining the algorithms and compression strategies:
 
 - [Documentation Index](./docs/README.md) — Start here for an overview
 - [Introduction to Image Compression](./docs/introduction-to-image-compression.md) — Why and how we compress images
+- [Introduction to Rust](./docs/introduction-to-rust.md) — Rust features through the lens of comprs
 
 ### Core Algorithms
 

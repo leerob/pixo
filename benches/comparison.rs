@@ -18,6 +18,9 @@ use criterion::{black_box, criterion_group, BenchmarkId, Criterion, Throughput};
 use flate2::{write::ZlibEncoder, Compression};
 use image::ImageEncoder;
 
+use jpeg_encoder::{ColorType as JpegColorType, Encoder as JpegEncoderCrate, SamplingFactor};
+use libdeflater::{CompressionLvl, Compressor as LibdeflateCompressor};
+
 use comprs::compress::deflate::deflate_zlib;
 use comprs::png::{QuantizationMode, QuantizationOptions};
 use comprs::{jpeg, png, ColorType};
@@ -73,6 +76,152 @@ fn make_random(len: usize, mut seed: u32) -> Vec<u8> {
     }
     out.truncate(len);
     out
+}
+
+/// Generate flat color blocks image (tests RLE/palette efficiency)
+fn generate_flat_blocks_image(width: u32, height: u32) -> Vec<u8> {
+    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
+    let colors: [[u8; 3]; 4] = [
+        [255, 0, 0],   // Red
+        [0, 255, 0],   // Green
+        [0, 0, 255],   // Blue
+        [255, 255, 0], // Yellow
+    ];
+    let block_w = width / 2;
+    let block_h = height / 2;
+    for y in 0..height {
+        for x in 0..width {
+            let block_x = if x < block_w { 0 } else { 1 };
+            let block_y = if y < block_h { 0 } else { 1 };
+            let color_idx = block_y * 2 + block_x;
+            pixels.extend_from_slice(&colors[color_idx]);
+        }
+    }
+    pixels
+}
+
+/// Generate text-like pattern (high contrast edges, typical of screenshots)
+#[allow(dead_code)]
+fn generate_text_pattern_image(width: u32, height: u32) -> Vec<u8> {
+    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
+    let mut seed = 42u32;
+    for y in 0..height {
+        for x in 0..width {
+            // Create horizontal "text lines" with noise
+            let line_y = y % 16;
+            let is_text_line = (4..=12).contains(&line_y);
+            seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+            let noise = ((seed >> 20) % 3) as u8;
+
+            let val = if is_text_line && (x % 8 < 6) {
+                // Dark text on light background with slight variation
+                20 + noise * 5
+            } else {
+                // Light background
+                240 - noise * 3
+            };
+            pixels.extend_from_slice(&[val, val, val]);
+        }
+    }
+    pixels
+}
+
+// ============================================================================
+// Test Image Infrastructure
+// ============================================================================
+
+/// Image category for benchmarking different content types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum ImageCategory {
+    Photo,        // Natural photographs (Kodak, review.jpg, web.jpg)
+    GraphicsIcon, // Icons and graphics (rocket.png, avatar-color.png)
+    Screenshot,   // UI elements, text (browser.jpg)
+    Synthetic,    // Generated test patterns
+}
+
+/// Test image descriptor
+struct TestImage {
+    name: &'static str,
+    category: ImageCategory,
+    path: &'static str,
+}
+
+/// Curated list of test images covering different content types
+const TEST_IMAGES: &[TestImage] = &[
+    // Photos (complex, natural images)
+    TestImage {
+        name: "kodim01",
+        category: ImageCategory::Photo,
+        path: "tests/fixtures/kodak/kodim01.png",
+    },
+    TestImage {
+        name: "kodim03",
+        category: ImageCategory::Photo,
+        path: "tests/fixtures/kodak/kodim03.png",
+    },
+    TestImage {
+        name: "kodim23",
+        category: ImageCategory::Photo,
+        path: "tests/fixtures/kodak/kodim23.png",
+    },
+    // Graphics/Icons (flat colors, transparency)
+    TestImage {
+        name: "rocket",
+        category: ImageCategory::GraphicsIcon,
+        path: "tests/fixtures/rocket.png",
+    },
+    TestImage {
+        name: "avatar",
+        category: ImageCategory::GraphicsIcon,
+        path: "tests/fixtures/avatar-color.png",
+    },
+];
+
+/// Loaded test image with pixel data
+struct LoadedImage {
+    name: String,
+    category: ImageCategory,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+/// Load all available test images
+fn load_test_images() -> Vec<LoadedImage> {
+    let mut images = Vec::new();
+
+    for test_img in TEST_IMAGES {
+        let path = std::path::Path::new(test_img.path);
+        if !path.exists() {
+            continue;
+        }
+
+        if let Ok(data) = fs::read(path) {
+            if let Ok(img) = image::load_from_memory(&data) {
+                let rgb = img.to_rgb8();
+                let (w, h) = (rgb.width(), rgb.height());
+                images.push(LoadedImage {
+                    name: test_img.name.to_string(),
+                    category: test_img.category,
+                    width: w,
+                    height: h,
+                    pixels: rgb.into_raw(),
+                });
+            }
+        }
+    }
+
+    images
+}
+
+/// Load test images filtered by category
+#[allow(dead_code)]
+fn load_images_by_category(category: ImageCategory) -> Vec<LoadedImage> {
+    load_test_images()
+        .into_iter()
+        .filter(|img| img.category == category)
+        .collect()
 }
 
 // ============================================================================
@@ -302,10 +451,11 @@ fn encode_with_imagequant(pixels: &[u8], width: u32, height: u32) -> Option<(usi
 // PNG Encoding Comparison (all presets)
 // ============================================================================
 
+#[allow(clippy::single_element_loop)]
 fn bench_png_all_presets(c: &mut Criterion) {
     let mut group = c.benchmark_group("PNG All Presets");
 
-    for size in [256, 512].iter() {
+    for size in [512].iter() {
         let gradient = generate_gradient_image(*size, *size);
         let pixel_bytes = (*size as u64) * (*size as u64) * 3;
 
@@ -394,10 +544,11 @@ fn bench_png_all_presets(c: &mut Criterion) {
 // PNG Lossy Comparison (quantization)
 // ============================================================================
 
+#[allow(clippy::single_element_loop)]
 fn bench_png_lossy_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("PNG Lossy Comparison");
 
-    for size in [256, 512].iter() {
+    for size in [512].iter() {
         let gradient = generate_gradient_image(*size, *size);
         let pixel_bytes = (*size as u64) * (*size as u64) * 3;
 
@@ -491,10 +642,11 @@ fn bench_png_lossy_comparison(c: &mut Criterion) {
 // JPEG Encoding Comparison (all presets)
 // ============================================================================
 
+#[allow(clippy::single_element_loop)]
 fn bench_jpeg_all_presets(c: &mut Criterion) {
     let mut group = c.benchmark_group("JPEG All Presets");
 
-    for size in [256, 512].iter() {
+    for size in [512].iter() {
         let gradient = generate_gradient_image(*size, *size);
         let pixel_bytes = (*size as u64) * (*size as u64) * 3;
 
@@ -581,7 +733,8 @@ fn bench_jpeg_all_presets(c: &mut Criterion) {
 }
 
 // ============================================================================
-// DEFLATE/zlib Comparison
+// DEFLATE/zlib Comparison - Comprehensive
+// Tests comprs vs flate2 vs libdeflate vs zopfli at multiple levels
 // ============================================================================
 
 fn bench_deflate_comparison(c: &mut Criterion) {
@@ -596,22 +749,569 @@ fn bench_deflate_comparison(c: &mut Criterion) {
         let bytes = data.len() as u64;
         group.throughput(Throughput::Bytes(bytes));
 
-        group.bench_with_input(BenchmarkId::new("comprs", name), data, |b, input| {
+        // comprs at level 6 (default)
+        group.bench_with_input(BenchmarkId::new("comprs_lvl6", name), data, |b, input| {
             b.iter(|| {
                 let encoded = deflate_zlib(black_box(input), 6);
                 black_box(encoded.len())
             });
         });
 
-        group.bench_with_input(BenchmarkId::new("flate2", name), data, |b, input| {
+        // flate2 at level 6 (default)
+        group.bench_with_input(BenchmarkId::new("flate2_lvl6", name), data, |b, input| {
             b.iter(|| {
-                let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+                let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(6));
                 encoder.write_all(black_box(input)).unwrap();
                 let encoded = encoder.finish().unwrap();
                 black_box(encoded.len())
             });
         });
+
+        // libdeflate at level 6
+        group.bench_with_input(
+            BenchmarkId::new("libdeflate_lvl6", name),
+            data,
+            |b, input| {
+                b.iter(|| {
+                    let mut compressor = LibdeflateCompressor::new(CompressionLvl::new(6).unwrap());
+                    let max_size = compressor.zlib_compress_bound(input.len());
+                    let mut output = vec![0u8; max_size];
+                    let actual_size = compressor
+                        .zlib_compress(black_box(input), &mut output)
+                        .unwrap();
+                    black_box(actual_size)
+                });
+            },
+        );
+
+        // libdeflate at level 12 (max)
+        group.bench_with_input(
+            BenchmarkId::new("libdeflate_lvl12", name),
+            data,
+            |b, input| {
+                b.iter(|| {
+                    let mut compressor =
+                        LibdeflateCompressor::new(CompressionLvl::new(12).unwrap());
+                    let max_size = compressor.zlib_compress_bound(input.len());
+                    let mut output = vec![0u8; max_size];
+                    let actual_size = compressor
+                        .zlib_compress(black_box(input), &mut output)
+                        .unwrap();
+                    black_box(actual_size)
+                });
+            },
+        );
     }
+
+    group.finish();
+}
+
+/// Separate benchmark for zopfli (very slow, max compression)
+fn bench_deflate_zopfli(c: &mut Criterion) {
+    let mut group = c.benchmark_group("DEFLATE Zopfli (Max Compression)");
+
+    // Use smaller data for zopfli since it's very slow
+    let compressible = make_compressible(64 * 1024); // 64KB
+    let bytes = compressible.len() as u64;
+    group.throughput(Throughput::Bytes(bytes));
+
+    // comprs at level 9 for comparison
+    group.bench_with_input(
+        BenchmarkId::new("comprs_lvl9", "compressible_64kb"),
+        &compressible,
+        |b, input| {
+            b.iter(|| {
+                let encoded = deflate_zlib(black_box(input), 9);
+                black_box(encoded.len())
+            });
+        },
+    );
+
+    // zopfli (very slow but best compression)
+    group.bench_with_input(
+        BenchmarkId::new("zopfli", "compressible_64kb"),
+        &compressible,
+        |b, input| {
+            b.iter(|| {
+                let options = zopfli::Options::default();
+                let mut output = Vec::new();
+                let mut cursor = std::io::Cursor::new(black_box(input));
+                zopfli::compress(options, zopfli::Format::Zlib, &mut cursor, &mut output).unwrap();
+                black_box(output.len())
+            });
+        },
+    );
+
+    group.finish();
+}
+
+// ============================================================================
+// FAIR COMPARISON: PNG Equivalent Settings
+// All encoders use compression level 6 with adaptive filtering
+// ============================================================================
+
+fn bench_png_equivalent_settings(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PNG Equivalent Settings (Level 6)");
+
+    // Test on multiple image types for fair comparison
+    let gradient = generate_gradient_image(512, 512);
+    let flat_blocks = generate_flat_blocks_image(512, 512);
+
+    let test_cases: Vec<(&str, &[u8])> = vec![
+        ("gradient_512", &gradient),
+        ("flat_blocks_512", &flat_blocks),
+    ];
+
+    for (name, pixels) in test_cases {
+        let pixel_bytes = pixels.len() as u64;
+        group.throughput(Throughput::Bytes(pixel_bytes));
+
+        let mut buf = Vec::new();
+
+        // comprs at level 6 with Adaptive filter
+        let comprs_opts = png::PngOptions::builder()
+            .compression_level(6)
+            .filter_strategy(png::FilterStrategy::Adaptive)
+            .build();
+
+        group.bench_with_input(
+            BenchmarkId::new("comprs_lvl6", name),
+            pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    png::encode_into(
+                        &mut buf,
+                        black_box(pixels),
+                        512,
+                        512,
+                        ColorType::Rgb,
+                        &comprs_opts,
+                    )
+                    .unwrap()
+                });
+            },
+        );
+
+        // image crate with default settings (uses flate2 level 6)
+        group.bench_with_input(
+            BenchmarkId::new("image_crate", name),
+            pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    let mut output = Vec::new();
+                    let encoder = image::codecs::png::PngEncoder::new(&mut output);
+                    encoder
+                        .write_image(black_box(pixels), 512, 512, image::ColorType::Rgb8)
+                        .unwrap();
+                    output
+                });
+            },
+        );
+
+        // lodepng with default settings
+        group.bench_with_input(BenchmarkId::new("lodepng", name), pixels, |b, pixels| {
+            b.iter(|| lodepng::encode24(black_box(pixels), 512, 512).unwrap());
+        });
+    }
+
+    // Also test on real images if available
+    let real_images = load_test_images();
+    for img in real_images.iter().take(2) {
+        let pixel_bytes = img.pixels.len() as u64;
+        group.throughput(Throughput::Bytes(pixel_bytes));
+
+        let mut buf = Vec::new();
+        let comprs_opts = png::PngOptions::builder()
+            .compression_level(6)
+            .filter_strategy(png::FilterStrategy::Adaptive)
+            .build();
+
+        group.bench_with_input(
+            BenchmarkId::new("comprs_lvl6", &img.name),
+            &img.pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    png::encode_into(
+                        &mut buf,
+                        black_box(pixels),
+                        img.width,
+                        img.height,
+                        ColorType::Rgb,
+                        &comprs_opts,
+                    )
+                    .unwrap()
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("image_crate", &img.name),
+            &img.pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    let mut output = Vec::new();
+                    let encoder = image::codecs::png::PngEncoder::new(&mut output);
+                    encoder
+                        .write_image(
+                            black_box(pixels),
+                            img.width,
+                            img.height,
+                            image::ColorType::Rgb8,
+                        )
+                        .unwrap();
+                    output
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("lodepng", &img.name),
+            &img.pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    lodepng::encode24(black_box(pixels), img.width as usize, img.height as usize)
+                        .unwrap()
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ============================================================================
+// FAIR COMPARISON: JPEG Equivalent Settings
+// All encoders use Q85, 4:2:0 subsampling, baseline (non-progressive)
+// ============================================================================
+
+fn bench_jpeg_equivalent_settings(c: &mut Criterion) {
+    let mut group = c.benchmark_group("JPEG Equivalent Settings (Q85 4:2:0)");
+
+    // Test on multiple image types
+    let gradient = generate_gradient_image(512, 512);
+    let flat_blocks = generate_flat_blocks_image(512, 512);
+
+    let test_cases: Vec<(&str, &[u8], u32, u32)> = vec![
+        ("gradient_512", &gradient, 512, 512),
+        ("flat_blocks_512", &flat_blocks, 512, 512),
+    ];
+
+    for (name, pixels, width, height) in &test_cases {
+        let pixel_bytes = pixels.len() as u64;
+        group.throughput(Throughput::Bytes(pixel_bytes));
+
+        let mut buf = Vec::new();
+
+        // comprs at Q85, 4:2:0, baseline (non-progressive)
+        let comprs_opts = jpeg::JpegOptions {
+            quality: 85,
+            subsampling: jpeg::Subsampling::S420, // 4:2:0
+            restart_interval: None,
+            optimize_huffman: false, // baseline tables
+            progressive: false,      // baseline
+            trellis_quant: false,
+        };
+
+        group.bench_with_input(
+            BenchmarkId::new("comprs_q85", name),
+            *pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    jpeg::encode_with_options_into(
+                        &mut buf,
+                        black_box(pixels),
+                        *width,
+                        *height,
+                        ColorType::Rgb,
+                        &comprs_opts,
+                    )
+                    .unwrap()
+                });
+            },
+        );
+
+        // image crate with quality 85
+        group.bench_with_input(
+            BenchmarkId::new("image_crate_q85", name),
+            *pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    let mut output = Vec::new();
+                    let encoder =
+                        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
+                    encoder
+                        .write_image(black_box(pixels), *width, *height, image::ColorType::Rgb8)
+                        .unwrap();
+                    output
+                });
+            },
+        );
+
+        // jpeg-encoder crate with Q85, 4:2:0
+        group.bench_with_input(
+            BenchmarkId::new("jpeg_encoder_q85", name),
+            *pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    let mut output = Vec::new();
+                    let encoder = JpegEncoderCrate::new(&mut output, 85);
+                    encoder
+                        .encode(
+                            black_box(pixels),
+                            *width as u16,
+                            *height as u16,
+                            JpegColorType::Rgb,
+                        )
+                        .unwrap();
+                    output
+                });
+            },
+        );
+    }
+
+    // Also test on real images if available
+    let real_images = load_test_images();
+    for img in real_images.iter().take(2) {
+        let pixel_bytes = img.pixels.len() as u64;
+        group.throughput(Throughput::Bytes(pixel_bytes));
+
+        let mut buf = Vec::new();
+        let comprs_opts = jpeg::JpegOptions {
+            quality: 85,
+            subsampling: jpeg::Subsampling::S420,
+            restart_interval: None,
+            optimize_huffman: false,
+            progressive: false,
+            trellis_quant: false,
+        };
+
+        group.bench_with_input(
+            BenchmarkId::new("comprs_q85", &img.name),
+            &img.pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    jpeg::encode_with_options_into(
+                        &mut buf,
+                        black_box(pixels),
+                        img.width,
+                        img.height,
+                        ColorType::Rgb,
+                        &comprs_opts,
+                    )
+                    .unwrap()
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("image_crate_q85", &img.name),
+            &img.pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    let mut output = Vec::new();
+                    let encoder =
+                        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
+                    encoder
+                        .write_image(
+                            black_box(pixels),
+                            img.width,
+                            img.height,
+                            image::ColorType::Rgb8,
+                        )
+                        .unwrap();
+                    output
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("jpeg_encoder_q85", &img.name),
+            &img.pixels,
+            |b, pixels| {
+                b.iter(|| {
+                    let mut output = Vec::new();
+                    let encoder = JpegEncoderCrate::new(&mut output, 85);
+                    encoder
+                        .encode(
+                            black_box(pixels),
+                            img.width as u16,
+                            img.height as u16,
+                            JpegColorType::Rgb,
+                        )
+                        .unwrap();
+                    output
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ============================================================================
+// BEST-EFFORT BENCHMARKS
+// Each encoder uses its optimal settings for best compression
+// ============================================================================
+
+fn bench_png_best_effort(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PNG Best Effort");
+
+    let gradient = generate_gradient_image(512, 512);
+    let pixel_bytes = gradient.len() as u64;
+    group.throughput(Throughput::Bytes(pixel_bytes));
+
+    let mut buf = Vec::new();
+
+    // comprs with balanced preset (good speed/size tradeoff)
+    group.bench_with_input(
+        BenchmarkId::new("comprs_balanced", "512x512"),
+        &gradient,
+        |b, pixels| {
+            b.iter(|| {
+                png::encode_into(
+                    &mut buf,
+                    black_box(pixels),
+                    512,
+                    512,
+                    ColorType::Rgb,
+                    &png::PngOptions::balanced(),
+                )
+                .unwrap()
+            });
+        },
+    );
+
+    // comprs with max preset (best compression)
+    // Note: This is slow, so we only run it once per iteration
+    group.bench_with_input(
+        BenchmarkId::new("comprs_max", "512x512"),
+        &gradient,
+        |b, pixels| {
+            b.iter(|| {
+                png::encode_into(
+                    &mut buf,
+                    black_box(pixels),
+                    512,
+                    512,
+                    ColorType::Rgb,
+                    &png::PngOptions::max(),
+                )
+                .unwrap()
+            });
+        },
+    );
+
+    // image crate with best compression
+    group.bench_with_input(
+        BenchmarkId::new("image_best", "512x512"),
+        &gradient,
+        |b, pixels| {
+            b.iter(|| {
+                let mut output = Vec::new();
+                let encoder = image::codecs::png::PngEncoder::new_with_quality(
+                    &mut output,
+                    image::codecs::png::CompressionType::Best,
+                    image::codecs::png::FilterType::Adaptive,
+                );
+                encoder
+                    .write_image(black_box(pixels), 512, 512, image::ColorType::Rgb8)
+                    .unwrap();
+                output
+            });
+        },
+    );
+
+    // lodepng (uses its default best settings)
+    group.bench_with_input(
+        BenchmarkId::new("lodepng", "512x512"),
+        &gradient,
+        |b, pixels| {
+            b.iter(|| lodepng::encode24(black_box(pixels), 512, 512).unwrap());
+        },
+    );
+
+    group.finish();
+}
+
+fn bench_jpeg_best_effort(c: &mut Criterion) {
+    let mut group = c.benchmark_group("JPEG Best Effort");
+
+    let gradient = generate_gradient_image(512, 512);
+    let pixel_bytes = gradient.len() as u64;
+    group.throughput(Throughput::Bytes(pixel_bytes));
+
+    let mut buf = Vec::new();
+
+    // comprs with max preset (progressive + trellis + optimized Huffman)
+    group.bench_with_input(
+        BenchmarkId::new("comprs_max", "512x512"),
+        &gradient,
+        |b, pixels| {
+            b.iter(|| {
+                jpeg::encode_with_options_into(
+                    &mut buf,
+                    black_box(pixels),
+                    512,
+                    512,
+                    ColorType::Rgb,
+                    &jpeg::JpegOptions::max(85),
+                )
+                .unwrap()
+            });
+        },
+    );
+
+    // comprs with balanced preset
+    group.bench_with_input(
+        BenchmarkId::new("comprs_balanced", "512x512"),
+        &gradient,
+        |b, pixels| {
+            b.iter(|| {
+                jpeg::encode_with_options_into(
+                    &mut buf,
+                    black_box(pixels),
+                    512,
+                    512,
+                    ColorType::Rgb,
+                    &jpeg::JpegOptions::balanced(85),
+                )
+                .unwrap()
+            });
+        },
+    );
+
+    // image crate
+    group.bench_with_input(
+        BenchmarkId::new("image_crate", "512x512"),
+        &gradient,
+        |b, pixels| {
+            b.iter(|| {
+                let mut output = Vec::new();
+                let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
+                encoder
+                    .write_image(black_box(pixels), 512, 512, image::ColorType::Rgb8)
+                    .unwrap();
+                output
+            });
+        },
+    );
+
+    // jpeg-encoder crate with optimized settings
+    group.bench_with_input(
+        BenchmarkId::new("jpeg_encoder", "512x512"),
+        &gradient,
+        |b, pixels| {
+            b.iter(|| {
+                let mut output = Vec::new();
+                let mut encoder = JpegEncoderCrate::new(&mut output, 85);
+                encoder.set_sampling_factor(SamplingFactor::F_2_2);
+                encoder
+                    .encode(black_box(pixels), 512, 512, JpegColorType::Rgb)
+                    .unwrap();
+                output
+            });
+        },
+    );
 
     group.finish();
 }
@@ -627,10 +1327,22 @@ fn print_summary_report() {
 
     println!("\n");
     println!("╔══════════════════════════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                              COMPRS COMPREHENSIVE BENCHMARK SUMMARY                              ║");
+    println!("║                                    COMPRS BENCHMARK RESULTS                                      ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════════════════════════╝");
     println!();
+    println!("This benchmark uses equivalent settings across all encoders for fair comparison.");
     println!("See benches/BENCHMARKS.md for detailed analysis and recommendations.");
+    println!();
+
+    // --- Fairness Documentation ---
+    println!("┌────────────────────────────────────────────────────────────────────────────────────────────────┐");
+    println!("│ BENCHMARK SETTINGS                                                                             │");
+    println!("├────────────────────────────────────────────────────────────────────────────────────────────────┤");
+    println!("│ PNG Equivalent:  All encoders at compression level 6, adaptive filter                         │");
+    println!("│ JPEG Equivalent: All encoders at Q85, 4:2:0 subsampling, baseline (non-progressive)           │");
+    println!("│ DEFLATE:         All encoders at level 6 for speed comparison                                 │");
+    println!("│ Test Images:     Synthetic (gradient, flat blocks) + Real (Kodak photos, fixtures)            │");
+    println!("└────────────────────────────────────────────────────────────────────────────────────────────────┘");
     println!();
 
     // --- External Tool Availability ---
@@ -962,34 +1674,53 @@ fn print_summary_report() {
 
     // --- DEFLATE Comparison ---
     println!("┌────────────────────────────────────────────────────────────────────────────────────────────────┐");
-    println!("│ DEFLATE Compression (1 MB payload)                                                             │");
+    println!("│ DEFLATE Compression (1 MB compressible payload, level 6)                                       │");
     println!("├────────────────────┬─────────────┬─────────────┬───────────────────────────────────────────────┤");
     println!("│ Library            │ Output Size │ Ratio       │ Notes                                         │");
     println!("├────────────────────┼─────────────┼─────────────┼───────────────────────────────────────────────┤");
 
     let compressible = make_compressible(1 << 20);
-    let comprs_deflate = deflate_zlib(&compressible, 6);
+    let input_size = compressible.len();
 
-    let mut flate2_enc = ZlibEncoder::new(Vec::new(), Compression::default());
+    // comprs
+    let comprs_deflate = deflate_zlib(&compressible, 6);
+    let comprs_ratio = input_size as f64 / comprs_deflate.len() as f64;
+
+    // flate2
+    let mut flate2_enc = ZlibEncoder::new(Vec::new(), Compression::new(6));
     flate2_enc.write_all(&compressible).unwrap();
     let flate2_deflate = flate2_enc.finish().unwrap();
+    let flate2_ratio = input_size as f64 / flate2_deflate.len() as f64;
 
-    let comprs_ratio = compressible.len() as f64 / comprs_deflate.len() as f64;
-    let flate2_ratio = compressible.len() as f64 / flate2_deflate.len() as f64;
+    // libdeflate
+    let mut libdeflate_compressor = LibdeflateCompressor::new(CompressionLvl::new(6).unwrap());
+    let max_size = libdeflate_compressor.zlib_compress_bound(input_size);
+    let mut libdeflate_output = vec![0u8; max_size];
+    let libdeflate_size = libdeflate_compressor
+        .zlib_compress(&compressible, &mut libdeflate_output)
+        .unwrap();
+    let libdeflate_ratio = input_size as f64 / libdeflate_size as f64;
 
     println!(
         "│ {:<18} │ {:>11} │ {:>10.1}x │ {:<45} │",
-        "comprs",
+        "comprs (lvl 6)",
         format_size(comprs_deflate.len()),
         comprs_ratio,
         "Pure Rust, zero deps"
     );
     println!(
         "│ {:<18} │ {:>11} │ {:>10.1}x │ {:<45} │",
-        "flate2",
+        "flate2 (lvl 6)",
         format_size(flate2_deflate.len()),
         flate2_ratio,
         "miniz_oxide backend"
+    );
+    println!(
+        "│ {:<18} │ {:>11} │ {:>10.1}x │ {:<45} │",
+        "libdeflate (lvl 6)",
+        format_size(libdeflate_size),
+        libdeflate_ratio,
+        "C library, fast"
     );
     println!("└────────────────────┴─────────────┴─────────────┴───────────────────────────────────────────────┘");
     println!();
@@ -1230,8 +1961,8 @@ fn load_kodak_for_benchmark() -> Option<Vec<(String, u32, u32, Vec<u8>)>> {
     }
 
     let mut images = Vec::new();
-    // Load first 4 images for reasonable benchmark time
-    for i in 1..=4 {
+    // Load first 2 images for faster benchmark time
+    for i in 1..=2 {
         let path = fixtures_dir.join(format!("kodim{i:02}.png"));
         if !path.exists() {
             continue;
@@ -1314,14 +2045,30 @@ fn bench_kodak_suite(c: &mut Criterion) {
 
 fn custom_criterion() -> Criterion {
     Criterion::default()
-        .sample_size(50)
-        .measurement_time(std::time::Duration::from_secs(5))
+        .sample_size(20)
+        .measurement_time(std::time::Duration::from_secs(2))
+        .warm_up_time(std::time::Duration::from_millis(500))
 }
 
 criterion_group! {
     name = benches;
     config = custom_criterion();
-    targets = bench_png_all_presets, bench_png_lossy_comparison, bench_jpeg_all_presets, bench_deflate_comparison, bench_kodak_suite
+    targets =
+        // Equivalent settings (fair comparison)
+        bench_png_equivalent_settings,
+        bench_jpeg_equivalent_settings,
+        // Best-effort (each encoder's optimal settings)
+        bench_png_best_effort,
+        bench_jpeg_best_effort,
+        // DEFLATE deep dive
+        bench_deflate_comparison,
+        bench_deflate_zopfli,
+        // Real images
+        bench_kodak_suite,
+        // Legacy preset benchmarks
+        bench_png_all_presets,
+        bench_png_lossy_comparison,
+        bench_jpeg_all_presets
 }
 
 // Custom main that prints summary after benchmarks

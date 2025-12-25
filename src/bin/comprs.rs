@@ -194,7 +194,6 @@ fn detect_format(path: &PathBuf) -> Result<&'static str, Box<dyn std::error::Err
     Err("Unknown image format. Supported: PNG, JPEG, PPM (P6), PGM (P5)".into())
 }
 
-/// Decode a PNG file.
 fn decode_png(path: &PathBuf) -> Result<DecodedImage, Box<dyn std::error::Error>> {
     let bytes = fs::read(path)?;
     let decoded = decode(&bytes)?;
@@ -207,7 +206,6 @@ fn decode_png(path: &PathBuf) -> Result<DecodedImage, Box<dyn std::error::Error>
     })
 }
 
-/// Decode a JPEG file.
 fn decode_jpeg(path: &PathBuf) -> Result<DecodedImage, Box<dyn std::error::Error>> {
     let file = File::open(path)?;
     let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(file));
@@ -323,7 +321,6 @@ fn read_token<R: BufRead>(reader: &mut R, token: &mut String) -> std::io::Result
     Ok(())
 }
 
-/// Load and decode an image file.
 fn load_image(path: &PathBuf) -> Result<DecodedImage, Box<dyn std::error::Error>> {
     let format = detect_format(path)?;
 
@@ -335,7 +332,6 @@ fn load_image(path: &PathBuf) -> Result<DecodedImage, Box<dyn std::error::Error>
     }
 }
 
-/// Convert image to grayscale.
 fn to_grayscale(pixels: &[u8], color_type: ColorType) -> Vec<u8> {
     match color_type {
         ColorType::Gray => pixels.to_vec(),
@@ -362,7 +358,6 @@ fn to_grayscale(pixels: &[u8], color_type: ColorType) -> Vec<u8> {
     }
 }
 
-/// Convert RGBA to RGB by dropping alpha channel.
 fn rgba_to_rgb(pixels: &[u8]) -> Vec<u8> {
     pixels
         .chunks_exact(4)
@@ -370,7 +365,6 @@ fn rgba_to_rgb(pixels: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// Convert GrayAlpha to Gray by dropping alpha channel.
 fn gray_alpha_to_gray(pixels: &[u8]) -> Vec<u8> {
     pixels.iter().step_by(2).copied().collect()
 }

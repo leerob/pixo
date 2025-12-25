@@ -242,14 +242,7 @@ fn distance_code(distance: u16) -> (u16, u8, u16) {
     (code_idx as u16, extra_bits, extra_value)
 }
 
-/// Compress data using DEFLATE algorithm.
-///
-/// # Arguments
-/// * `data` - Raw data to compress
-/// * `level` - Compression level 1-9
-///
-/// # Returns
-/// Compressed data in raw DEFLATE format (no zlib/gzip wrapper).
+/// Returns raw DEFLATE format (no zlib/gzip wrapper). Level 1-9.
 #[must_use]
 pub fn deflate(data: &[u8], level: u8) -> Vec<u8> {
     if data.is_empty() {
@@ -263,10 +256,7 @@ pub fn deflate(data: &[u8], level: u8) -> Vec<u8> {
     }
 }
 
-/// Compress data using DEFLATE algorithm with packed tokens (non-reusable).
-///
-/// This is an experimental fast path that avoids `Token` allocations by
-/// emitting packed tokens directly into the Huffman encoder.
+/// Fast path that avoids `Token` allocations by emitting packed tokens directly.
 #[must_use]
 pub fn deflate_packed(data: &[u8], level: u8) -> Vec<u8> {
     if data.is_empty() {
@@ -363,7 +353,6 @@ pub fn deflate_optimal(data: &[u8], iterations: usize) -> Vec<u8> {
     best_output
 }
 
-/// Compress data using optimal DEFLATE with default iteration count.
 #[must_use]
 pub fn deflate_optimal_default(data: &[u8]) -> Vec<u8> {
     deflate_optimal(data, DEFAULT_OPTIMAL_ITERATIONS)
@@ -405,7 +394,6 @@ pub fn deflate_optimal_zlib(data: &[u8], iterations: usize) -> Vec<u8> {
     deflate_optimal_split_zlib(data, iterations, DEFAULT_MAX_BLOCKS)
 }
 
-/// Count symbol frequencies from a token stream.
 fn count_symbols(tokens: &[Token]) -> ([u32; 286], [u32; 30]) {
     let mut lit_len_counts = [0u32; 286];
     let mut dist_counts = [0u32; 30];
@@ -449,7 +437,6 @@ const MIN_BLOCK_SIZE: usize = 10;
 /// Maximum number of blocks to split into.
 const DEFAULT_MAX_BLOCKS: usize = 15;
 
-/// Count symbol frequencies for a slice of tokens.
 fn count_symbols_range(tokens: &[Token], start: usize, end: usize) -> ([u32; 286], [u32; 30]) {
     let mut lit_len_counts = [0u32; 286];
     let mut dist_counts = [0u32; 30];
@@ -653,8 +640,6 @@ fn find_block_splits(tokens: &[Token], max_blocks: usize) -> Vec<usize> {
     splits
 }
 
-/// Write a dynamic Huffman block to a BitWriter.
-/// This allows multiple blocks to share a single bit stream.
 fn write_dynamic_huffman_block(writer: &mut BitWriter64, tokens: &[Token], is_final: bool) {
     // Frequencies
     let mut lit_freqs = vec![0u32; 286];
@@ -839,7 +824,6 @@ pub fn deflate_optimal_split(data: &[u8], iterations: usize, max_blocks: usize) 
     writer.finish()
 }
 
-/// Compress data using optimal DEFLATE with block splitting and wrap in zlib container.
 #[must_use]
 pub fn deflate_optimal_split_zlib(data: &[u8], iterations: usize, max_blocks: usize) -> Vec<u8> {
     if data.is_empty() {
@@ -952,7 +936,6 @@ pub struct Deflater {
 }
 
 impl Deflater {
-    /// Create a new reusable deflater for the given level.
     pub fn new(level: u8) -> Self {
         let level = level.clamp(1, 9);
         Self {
@@ -963,13 +946,11 @@ impl Deflater {
         }
     }
 
-    /// Return the compression level configured for this deflater.
     #[inline]
     pub fn level(&self) -> u8 {
         self.level
     }
 
-    /// Compress raw data into a DEFLATE stream.
     pub fn compress(&mut self, data: &[u8]) -> Vec<u8> {
         if data.is_empty() {
             return empty_deflate_fixed_block();
@@ -998,7 +979,6 @@ impl Deflater {
         encode_fixed_huffman_with_capacity(&self.tokens, est_bytes)
     }
 
-    /// Compress data and wrap in a zlib container.
     pub fn compress_zlib(&mut self, data: &[u8]) -> Vec<u8> {
         if data.is_empty() {
             return empty_zlib(self.level);
@@ -1027,7 +1007,6 @@ impl Deflater {
         output
     }
 
-    /// Compress data using packed tokens into a raw DEFLATE stream.
     pub fn compress_packed(&mut self, data: &[u8]) -> Vec<u8> {
         if data.is_empty() {
             return empty_deflate_fixed_block();
@@ -1064,7 +1043,6 @@ impl Deflater {
         encode_fixed_huffman_packed_with_capacity(&self.packed_tokens, est_bytes)
     }
 
-    /// Compress data using packed tokens and wrap in a zlib container.
     pub fn compress_packed_zlib(&mut self, data: &[u8]) -> Vec<u8> {
         if data.is_empty() {
             return empty_zlib(self.level);
@@ -1184,7 +1162,6 @@ pub fn deflate_zlib(data: &[u8], level: u8) -> Vec<u8> {
     with_reusable_deflater(level, |d| d.compress_zlib(data))
 }
 
-/// Compress data with packed tokens and wrap it in a zlib container.
 #[must_use]
 pub fn deflate_zlib_packed(data: &[u8], level: u8) -> Vec<u8> {
     if data.len() >= HIGH_ENTROPY_BAIL_BYTES && is_high_entropy_data(data) {
@@ -1203,7 +1180,6 @@ fn deflate_zlib_stored(data: &[u8], level: u8) -> Vec<u8> {
     output
 }
 
-/// Compress data using DEFLATE in a zlib container, returning encoded bytes plus stats.
 pub fn deflate_zlib_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
     // Empty input mirrors `deflate_zlib`
     if data.is_empty() {
@@ -1249,7 +1225,6 @@ pub fn deflate_zlib_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats
     (output, stats)
 }
 
-/// Compress data with packed tokens into a zlib container, returning stats.
 #[cfg(feature = "timing")]
 pub fn deflate_zlib_packed_with_stats(data: &[u8], level: u8) -> (Vec<u8>, DeflateStats) {
     if data.is_empty() {
@@ -1294,7 +1269,6 @@ pub fn deflate_zlib_packed_with_stats(data: &[u8], level: u8) -> (Vec<u8>, Defla
     (output, stats)
 }
 
-/// Decide whether stored blocks would be smaller than the compressed stream.
 fn should_use_stored(data_len: usize, deflated_len: usize) -> bool {
     // Stored block size: data + 5 bytes per 65535 chunk
     let stored_overhead = (data_len / 65_535 + 1) * 5;
@@ -1351,7 +1325,6 @@ fn is_high_entropy_data(data: &[u8]) -> bool {
     collision_rate < 0.05
 }
 
-/// Encode tokens using fixed Huffman codes.
 pub fn encode_fixed_huffman(tokens: &[Token]) -> Vec<u8> {
     encode_fixed_huffman_with_capacity(tokens, 1024)
 }
@@ -1401,7 +1374,6 @@ fn encode_fixed_huffman_with_capacity(tokens: &[Token], capacity_hint: usize) ->
     writer.finish()
 }
 
-/// Encode packed tokens using fixed Huffman codes (fast path).
 pub fn encode_fixed_huffman_packed(tokens: &[PackedToken]) -> Vec<u8> {
     encode_fixed_huffman_packed_with_capacity(tokens, 1024)
 }
@@ -1445,7 +1417,6 @@ fn encode_fixed_huffman_packed_with_capacity(
     writer.finish()
 }
 
-/// Encode tokens using dynamic Huffman codes (RFC 1951).
 pub fn encode_dynamic_huffman(tokens: &[Token]) -> Vec<u8> {
     encode_dynamic_huffman_with_capacity(tokens, 1024)
 }
@@ -1567,7 +1538,6 @@ fn encode_dynamic_huffman_with_capacity(tokens: &[Token], capacity_hint: usize) 
     writer.finish()
 }
 
-/// Encode packed tokens using dynamic Huffman codes.
 pub fn encode_dynamic_huffman_packed(tokens: &[PackedToken]) -> Vec<u8> {
     encode_dynamic_huffman_packed_with_capacity(tokens, 1024)
 }
@@ -1686,7 +1656,6 @@ fn last_nonzero(lengths: &[u8]) -> usize {
         .unwrap_or(1) // minimum 1 code
 }
 
-/// Count literal and match tokens for stats.
 fn token_counts(tokens: &[Token]) -> (usize, usize) {
     let mut literal_count = 0;
     let mut match_count = 0;
@@ -1805,7 +1774,6 @@ fn reverse_bits(code: u16, length: u8) -> u32 {
     (reversed >> (16 - length)) as u32
 }
 
-/// Precompute reversed codes for a slice of Huffman codes.
 #[inline]
 fn prepare_reversed_codes(codes: &[huffman::HuffmanCode]) -> Vec<(u32, u8)> {
     codes
@@ -1864,7 +1832,6 @@ fn fixed_distance_codes_rev() -> &'static [(u32, u8); 32] {
     &FIXED_DIST_REV
 }
 
-/// Build the two-byte zlib header for the given compression level.
 fn zlib_header(level: u8) -> [u8; 2] {
     // CMF: 0b0111_1000 (Deflate, 32K window)
     let cmf: u8 = 0x78;

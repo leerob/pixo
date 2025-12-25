@@ -196,61 +196,51 @@ impl PngOptions {
 }
 
 impl PngOptionsBuilder {
-    /// Set compression level (1-9).
     pub fn compression_level(mut self, level: u8) -> Self {
         self.options.compression_level = level;
         self
     }
 
-    /// Set filter strategy.
     pub fn filter_strategy(mut self, strategy: FilterStrategy) -> Self {
         self.options.filter_strategy = strategy;
         self
     }
 
-    /// Toggle alpha optimization for fully transparent pixels.
     pub fn optimize_alpha(mut self, value: bool) -> Self {
         self.options.optimize_alpha = value;
         self
     }
 
-    /// Toggle lossless color type reduction when safe.
     pub fn reduce_color_type(mut self, value: bool) -> Self {
         self.options.reduce_color_type = value;
         self
     }
 
-    /// Toggle stripping ancillary metadata chunks.
     pub fn strip_metadata(mut self, value: bool) -> Self {
         self.options.strip_metadata = value;
         self
     }
 
-    /// Toggle palette reduction when color count allows.
     pub fn reduce_palette(mut self, value: bool) -> Self {
         self.options.reduce_palette = value;
         self
     }
 
-    /// Enable verbose filter logging (debug/CLI).
     pub fn verbose_filter_log(mut self, value: bool) -> Self {
         self.options.verbose_filter_log = value;
         self
     }
 
-    /// Toggle optimal (Zopfli-style) compression.
     pub fn optimal_compression(mut self, value: bool) -> Self {
         self.options.optimal_compression = value;
         self
     }
 
-    /// Set full quantization options.
     pub fn quantization(mut self, quantization: QuantizationOptions) -> Self {
         self.options.quantization = quantization;
         self
     }
 
-    /// Set quantization mode.
     pub fn quantization_mode(mut self, mode: QuantizationMode) -> Self {
         self.options.quantization.mode = mode;
         self
@@ -266,25 +256,21 @@ impl PngOptionsBuilder {
         self
     }
 
-    /// Set maximum palette size for quantization.
     pub fn quantization_max_colors(mut self, max_colors: u16) -> Self {
         self.options.quantization.max_colors = max_colors;
         self
     }
 
-    /// Toggle dithering for quantization.
     pub fn quantization_dithering(mut self, dithering: bool) -> Self {
         self.options.quantization.dithering = dithering;
         self
     }
 
-    /// Apply preset (0=fast, 1=balanced, 2=max).
     pub fn preset(mut self, preset: u8) -> Self {
         self.options = PngOptions::from_preset(preset);
         self
     }
 
-    /// Build the configured [`PngOptions`].
     #[must_use]
     pub fn build(self) -> PngOptions {
         self.options
@@ -335,7 +321,6 @@ pub fn encode(data: &[u8], width: u32, height: u32, color_type: ColorType) -> Re
     Ok(output)
 }
 
-/// Encode raw pixel data as PNG with custom options.
 pub fn encode_with_options(
     data: &[u8],
     width: u32,
@@ -575,7 +560,6 @@ pub fn encode_into_with_stats(
     Ok(stats)
 }
 
-/// Write IHDR (image header) chunk.
 fn write_ihdr(output: &mut Vec<u8>, width: u32, height: u32, bit_depth: u8, color_type_byte: u8) {
     let mut ihdr_data = Vec::with_capacity(13);
 
@@ -603,7 +587,6 @@ fn write_ihdr(output: &mut Vec<u8>, width: u32, height: u32, bit_depth: u8, colo
     chunk::write_chunk(output, b"IHDR", &ihdr_data);
 }
 
-/// Write IDAT (image data) chunks.
 fn write_idat_chunks(output: &mut Vec<u8>, compressed: &[u8]) {
     // Write in larger chunks to reduce per-chunk overhead (CRC/length)
     const CHUNK_SIZE: usize = 256 * 1024;
@@ -613,7 +596,6 @@ fn write_idat_chunks(output: &mut Vec<u8>, compressed: &[u8]) {
     }
 }
 
-/// Write IEND (image end) chunk.
 fn write_iend(output: &mut Vec<u8>) {
     chunk::write_chunk(output, b"IEND", &[]);
 }
@@ -1666,7 +1648,6 @@ pub fn encode_indexed(
     Ok(output)
 }
 
-/// Encode indexed (palette) pixel data as PNG with custom options.
 pub fn encode_indexed_with_options(
     data: &[u8],
     width: u32,
@@ -1688,7 +1669,6 @@ pub fn encode_indexed_with_options(
     Ok(output)
 }
 
-/// Encode indexed (palette) pixel data into a caller-provided buffer.
 pub fn encode_indexed_into(
     output: &mut Vec<u8>,
     data: &[u8],

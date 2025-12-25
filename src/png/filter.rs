@@ -450,7 +450,6 @@ fn adaptive_filter_fast(
     }
 }
 
-/// Filter a single row with the configured strategy.
 fn filter_row(
     row: &[u8],
     prev_row: &[u8],

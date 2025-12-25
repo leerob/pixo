@@ -71,3 +71,8 @@ build/
 # Playwright
 playwright-report/
 test-results/
+
+# Fuzzing artifacts
+tests/fuzz/corpus/
+tests/fuzz/artifacts/
+tests/fuzz/target/

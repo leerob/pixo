@@ -112,7 +112,6 @@ impl HuffmanTables {
         }
     }
 
-    /// Get DC code for a category.
     fn get_dc_code(&self, category: u8, is_luminance: bool) -> HuffCode {
         if is_luminance {
             self.dc_lum_codes[category as usize]
@@ -121,7 +120,6 @@ impl HuffmanTables {
         }
     }
 
-    /// Get AC code for a (run, size) pair.
     fn get_ac_code(&self, rs: u8, is_luminance: bool) -> HuffCode {
         if is_luminance {
             self.ac_lum_codes[rs as usize]
@@ -230,7 +228,6 @@ fn build_codes(bits: &[u8; 16], vals: &[u8]) -> [HuffCode; 12] {
     codes
 }
 
-/// Build Huffman codes for 256 AC symbols.
 fn build_codes_256(bits: &[u8; 16], vals: &[u8]) -> [HuffCode; 256] {
     let mut codes = [HuffCode::default(); 256];
     let mut code = 0u16;

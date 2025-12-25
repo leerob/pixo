@@ -28,7 +28,6 @@ use std::arch::aarch64::*;
 const CONST_BITS: i32 = 13;
 const PASS1_BITS: i32 = 2;
 
-/// Fixed-point multiplication helper
 #[inline(always)]
 fn fix_mul(a: i32, b: i32) -> i32 {
     ((a as i64 * b as i64) >> CONST_BITS) as i32
@@ -379,8 +378,6 @@ pub fn dct_2d_fast(block: &[i16; 64]) -> [i32; 64] {
     }
 }
 
-/// Quantize a block using integer DCT output.
-/// The integer DCT already produces properly scaled coefficients.
 pub fn quantize_block_integer(dct: &[i32; 64], quant_table: &[u16; 64]) -> [i16; 64] {
     let mut result = [0i16; 64];
     for i in 0..64 {
@@ -599,7 +596,6 @@ pub fn idct_2d(block: &[f32; 64]) -> [f32; 64] {
     result
 }
 
-/// Perform 1D inverse DCT on 8 values.
 fn idct_1d(input: &[f32], output: &mut [f32]) {
     debug_assert_eq!(input.len(), 8);
     debug_assert_eq!(output.len(), 8);

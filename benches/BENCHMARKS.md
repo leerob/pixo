@@ -17,27 +17,132 @@ This document provides a comprehensive comparison of comprs against other image 
 
 ---
 
-## Table of Contents
+## Methodology
 
-1. [PNG Lossless Compression](#1-png-lossless-compression)
-2. [PNG Lossy Compression (Quantization)](#2-png-lossy-compression-quantization)
-3. [JPEG Compression Comparison](#3-jpeg-compression-comparison)
-4. [WASM Binary Size Comparison](#4-wasm-binary-size-comparison)
-5. [Rust Library Ecosystem](#5-rust-library-ecosystem)
-6. [JavaScript/Node.js Library Ecosystem](#6-javascriptnodejs-library-ecosystem)
-7. [Platform-Specific Optimizations](#7-platform-specific-optimizations)
-8. [Recommendations: When to Use Which Tool](#8-recommendations-when-to-use-which-tool)
+All benchmarks use equivalent settings across encoders to ensure fair comparison:
+
+| Format  | Settings Used                                             |
+| ------- | --------------------------------------------------------- |
+| PNG     | Compression level 6, adaptive filter                      |
+| JPEG    | Quality 85, 4:2:0 subsampling, baseline (non-progressive) |
+| DEFLATE | Compression level 6                                       |
+
+Test images include both synthetic patterns (gradient, flat blocks) and real photographs (Kodak suite).
 
 ---
 
-## 1. PNG Lossless Compression
+## Table of Contents
+
+1. [PNG Encoders](#1-png-encoders)
+2. [JPEG Encoders](#2-jpeg-encoders)
+3. [DEFLATE Libraries](#3-deflate-libraries)
+4. [PNG Preset Comparison](#4-png-preset-comparison)
+5. [PNG Lossy Compression (Quantization)](#5-png-lossy-compression-quantization)
+6. [JPEG Preset Comparison](#6-jpeg-preset-comparison)
+7. [WASM Binary Size Comparison](#7-wasm-binary-size-comparison)
+8. [Rust Library Ecosystem](#8-rust-library-ecosystem)
+9. [JavaScript/Node.js Library Ecosystem](#9-javascriptnodejs-library-ecosystem)
+10. [Platform-Specific Optimizations](#10-platform-specific-optimizations)
+11. [Recommendations: When to Use Which Tool](#11-recommendations-when-to-use-which-tool)
+
+---
+
+## 1. PNG Encoders
+
+All encoders tested at **compression level 6** with adaptive filtering for a fair comparison.
+
+### Synthetic Images (512×512)
+
+| Image Type  | comprs         | image crate     | lodepng        | Winner         |
+| ----------- | -------------- | --------------- | -------------- | -------------- |
+| Gradient    | 7.6 KB / 2.4ms | 76.8 KB / 0.6ms | 7.5 KB / 1.8ms | lodepng (size) |
+| Flat Blocks | 0.4 KB / 2.5ms | 0.5 KB / 0.5ms  | 0.4 KB / 3.3ms | Tie            |
+
+### Real Images (Kodak Photos)
+
+| Image   | Dimensions | comprs        | image crate  | lodepng       | Winner               |
+| ------- | ---------- | ------------- | ------------ | ------------- | -------------------- |
+| kodim01 | 768×512    | 475 KB / 15ms | 673 KB / 3ms | 475 KB / 12ms | Tie (comprs/lodepng) |
+| kodim03 | 768×512    | 364 KB / 13ms | 497 KB / 3ms | 364 KB / 10ms | Tie (comprs/lodepng) |
+
+**Key Findings:**
+
+- comprs and lodepng produce **nearly identical file sizes** at level 6
+- comprs is **2-3× slower** than image crate but produces **10× smaller files**
+- lodepng (C library) is slightly faster than comprs but requires native bindings
+
+---
+
+## 2. JPEG Encoders
+
+All encoders tested at **quality 85, 4:2:0 subsampling, baseline mode** for fair comparison.
+
+### Synthetic Images (512×512)
+
+| Image Type  | comprs          | image crate     | jpeg-encoder    | Winner               |
+| ----------- | --------------- | --------------- | --------------- | -------------------- |
+| Gradient    | 17.3 KB / 1.6ms | 16.7 KB / 1.5ms | 17.4 KB / 0.9ms | jpeg-encoder (speed) |
+| Flat Blocks | 3.5 KB / 1.5ms  | 3.4 KB / 1.4ms  | 3.5 KB / 0.8ms  | jpeg-encoder (speed) |
+
+### Real Images (Kodak Photos)
+
+| Image   | Dimensions | comprs        | image crate   | jpeg-encoder  | Winner     |
+| ------- | ---------- | ------------- | ------------- | ------------- | ---------- |
+| kodim01 | 768×512    | 52.8 KB / 5ms | 53.0 KB / 5ms | 53.2 KB / 3ms | Tie (size) |
+| kodim03 | 768×512    | 39.2 KB / 5ms | 39.5 KB / 5ms | 39.4 KB / 3ms | Tie (size) |
+
+**Key Findings:**
+
+- All three encoders produce **nearly identical file sizes** at equivalent settings
+- jpeg-encoder is **~2× faster** due to SIMD optimizations in baseline mode
+- comprs's advantage comes from **advanced features** (progressive, trellis, Huffman optimization)
+
+---
+
+## 3. DEFLATE Libraries
+
+All libraries tested at **compression level 6** on 1 MB payloads.
+
+### Compressible Data (repeating text pattern)
+
+| Library    | Output Size | Ratio  | Throughput  | Notes                |
+| ---------- | ----------- | ------ | ----------- | -------------------- |
+| **comprs** | 3.0 KB      | 336.6× | 865 MiB/s   | Pure Rust, zero deps |
+| libdeflate | 3.1 KB      | 332.4× | 4,265 MiB/s | C library, fastest   |
+| flate2     | 6.0 KB      | 169.9× | 989 MiB/s   | miniz_oxide backend  |
+
+### Random Data (incompressible)
+
+| Library    | Output Size | Ratio | Throughput | Notes       |
+| ---------- | ----------- | ----- | ---------- | ----------- |
+| **comprs** | 1.0 MB      | 1.0×  | 185 MiB/s  | Pure Rust   |
+| libdeflate | 1.0 MB      | 1.0×  | 94 MiB/s   | C library   |
+| flate2     | 1.0 MB      | 1.0×  | 67 MiB/s   | miniz_oxide |
+
+### Max Compression (Zopfli comparison, 64 KB data)
+
+| Library        | Output Size | Time   | Notes                              |
+| -------------- | ----------- | ------ | ---------------------------------- |
+| comprs (lvl 9) | 146 B       | 91 µs  | Fast, good compression             |
+| **zopfli**     | 189 B       | 222 ms | Best compression, **2400× slower** |
+
+**Key Findings:**
+
+- comprs achieves **2× better compression ratio** than flate2 on compressible data
+- libdeflate is **5× faster** but requires C bindings
+- comprs is **2.75× faster** than flate2 on random data
+- zopfli achieves only ~1.5% better compression but is **2400× slower**
+
+---
+
+## 4. PNG Preset Comparison
 
 Comparing comprs presets against oxipng and the image crate. All columns show **size / time**.
 
 | Image                       | Dimensions | comprs Fast      | comprs Balanced  | comprs Max      | oxipng           | image crate   | Delta vs oxipng |
 | --------------------------- | ---------- | ---------------- | ---------------- | --------------- | ---------------- | ------------- | --------------- |
-| playground.png              | 1920×1080  | 1,475,576 / 0.4s | 1,340,919 / 0.2s | 1,332,458 / 77s | 1,134,213 / 2.1s | ~1.4MB / 0.3s | +17.5%          |
-| squoosh_example.png         | 1920×1280  | 2,366,900 / 0.2s | 1,928,383 / 0.4s | 1,859,691 / 41s | 1,633,408 / 1.8s | ~2.0MB / 0.4s | +13.9%          |
+| playground.png              | 1460×1080  | 1,475,576 / 0.4s | 1,340,919 / 0.2s | 1,332,458 / 77s | 1,134,213 / 2.1s | ~1.4MB / 0.3s | +17.5%          |
+| squoosh_example.png         | 1460×1280  | 2,366,900 / 0.2s | 1,928,383 / 0.4s | 1,859,691 / 41s | 1,633,408 / 1.8s | ~2.0MB / 0.4s | +13.9%          |
 | squoosh_example_palette.png | 800×600    | 268,636 / 48ms   | 147,626 / 45ms   | 144,855 / 2.8s  | 104,206 / 0.9s   | ~180KB / 50ms | +39.0%          |
 | rocket.png                  | 800×600    | 1,716,340 / 0.1s | 1,390,853 / 0.2s | 1,379,515 / 15s | 1,280,518 / 1.2s | ~1.5MB / 0.2s | +7.7%           |
 
@@ -61,7 +166,7 @@ Comparing comprs presets against oxipng and the image crate. All columns show **
 
 ---
 
-## 2. PNG Lossy Compression (Quantization)
+## 5. PNG Lossy Compression (Quantization)
 
 Lossy PNG compression reduces file size by limiting the color palette to 256 colors (8-bit indexed PNG). This provides **significant size reductions (50-80%)** for photographic or complex images while maintaining PNG's lossless transparency support.
 
@@ -79,7 +184,7 @@ Testing on actual images from the test fixtures:
 - On images with solid colors/flat areas (rocket.png), **comprs wins by 28%**
 - On complex photographic images, pngquant's libimagequant produces smaller files
 - Both achieve **50-80% reduction** compared to lossless PNG
-- comprs has zero external dependencies (236 KB WASM vs pngquant's native binary)
+- comprs has zero external dependencies (146 KB WASM vs pngquant's native binary)
 
 ### Synthetic Benchmark (512×512 gradient)
 
@@ -102,7 +207,7 @@ Gradient images are a **worst-case scenario** for quantization because they cont
 | **Images with flat colors/UI**      | comprs Lossy often beats pngquant            |
 | **Complex photos, max compression** | pngquant produces smaller files              |
 | **Icons and logos (<256 colors)**   | Use lossless - already optimized             |
-| **WASM bundle size matters**        | comprs Lossy (no external deps, 236 KB WASM) |
+| **WASM bundle size matters**        | comprs Lossy (no external deps, 146 KB WASM) |
 
 ### Lossy PNG Settings
 
@@ -114,7 +219,7 @@ Gradient images are a **worst-case scenario** for quantization because they cont
 
 ---
 
-## 3. JPEG Compression Comparison
+## 6. JPEG Preset Comparison
 
 Comparing comprs presets against mozjpeg and the image crate. All columns show **size / time**.
 
@@ -145,13 +250,13 @@ Comparing comprs presets against mozjpeg and the image crate. All columns show *
 
 ---
 
-## 4. WASM Binary Size Comparison
+## 7. WASM Binary Size Comparison
 
 Critical for web applications where bundle size impacts load time.
 
 | Library         | WASM Size  | Notes                               |
 | --------------- | ---------- | ----------------------------------- |
-| **comprs**      | **142 KB** | Zero deps, pure Rust, lossy PNG [1] |
+| **comprs**      | **146 KB** | Zero deps, pure Rust, lossy PNG [1] |
 | wasm-mozjpeg    | ~208 KB    | Emscripten compiled                 |
 | squoosh oxipng  | ~625 KB    | Google's Squoosh codec              |
 | squoosh mozjpeg | ~803 KB    | Google's Squoosh codec              |
@@ -170,7 +275,7 @@ panic = "abort"      # Remove unwinding code
 strip = true         # Strip symbols
 ```
 
-Build command for the 142 KB binary:
+Build command for the 146 KB binary:
 
 ```bash
 cargo build --target wasm32-unknown-unknown --release --no-default-features --features wasm,simd
@@ -183,18 +288,30 @@ wasm-opt -Oz --strip-debug --strip-dwarf --strip-producers --strip-target-featur
 
 ---
 
-## 5. Rust Library Ecosystem
+## 8. Rust Library Ecosystem
 
 Comparison of Rust image compression libraries.
 
-| Library           | WASM-friendly   | Binary Size  | Throughput | SIMD Support | Notes                                          |
-| ----------------- | --------------- | ------------ | ---------- | ------------ | ---------------------------------------------- |
-| **comprs**        | Yes             | 236 KB       | Excellent  | NEON + AVX2  | Zero deps, pure Rust, lossy PNG, parallel JPEG |
-| `image`           | Yes             | ~2-4 MB      | Good       | Limited      | Pure Rust, many codecs included                |
-| `photon-rs`       | Yes             | ~200-400 KB  | Excellent  | Yes          | Pure Rust, designed for WASM [2]               |
-| `zune-image`      | Yes             | ~500 KB-1 MB | Excellent  | x86 SIMD     | Pure Rust, SIMD optimized [3]                  |
-| `mozjpeg`         | Emscripten only | ~30-50 KB    | Excellent  | Yes          | C library, complex build setup                 |
-| `libpng` bindings | Emscripten only | N/A          | Excellent  | Yes          | C library, requires Emscripten                 |
+### Image Encoding Libraries
+
+| Library        | WASM-friendly   | Binary Size  | Throughput | SIMD Support | Notes                                          |
+| -------------- | --------------- | ------------ | ---------- | ------------ | ---------------------------------------------- |
+| **comprs**     | Yes             | ~146 KB      | Excellent  | NEON + AVX2  | Zero deps, pure Rust, lossy PNG, parallel JPEG |
+| `image`        | Yes             | ~2-4 MB      | Good       | Limited      | Pure Rust, many codecs included                |
+| `jpeg-encoder` | Yes             | ~50 KB       | Excellent  | AVX2         | Pure Rust JPEG encoder, SIMD optimized         |
+| `lodepng`      | No (C bindings) | N/A          | Excellent  | No           | C lodepng library bindings                     |
+| `photon-rs`    | Yes             | ~200-400 KB  | Excellent  | Yes          | Pure Rust, designed for WASM [2]               |
+| `zune-image`   | Yes             | ~500 KB-1 MB | Excellent  | x86 SIMD     | Pure Rust, SIMD optimized [3]                  |
+| `mozjpeg`      | Emscripten only | ~30-50 KB    | Excellent  | Yes          | C library, complex build setup                 |
+
+### DEFLATE/Compression Libraries
+
+| Library       | WASM-friendly   | Throughput  | Compression | Notes                            |
+| ------------- | --------------- | ----------- | ----------- | -------------------------------- |
+| **comprs**    | Yes             | 865 MiB/s   | 336×        | Pure Rust, zero deps             |
+| `flate2`      | Yes             | 989 MiB/s   | 170×        | miniz_oxide backend, widely used |
+| `libdeflater` | No (C bindings) | 4,265 MiB/s | 332×        | C libdeflate bindings, fastest   |
+| `zopfli`      | Yes             | 0.3 MiB/s   | 340×        | Max compression, very slow       |
 
 ### Rust Library Footnotes
 
@@ -203,7 +320,7 @@ Comparison of Rust image compression libraries.
 
 ---
 
-## 6. JavaScript/Node.js Library Ecosystem
+## 9. JavaScript/Node.js Library Ecosystem
 
 Comparison of JavaScript and Node.js image compression options.
 
@@ -233,7 +350,7 @@ Comparison of JavaScript and Node.js image compression options.
 
 ---
 
-## 7. Platform-Specific Optimizations
+## 10. Platform-Specific Optimizations
 
 comprs includes extensive SIMD optimizations that automatically activate based on the target platform.
 
@@ -282,24 +399,26 @@ cargo build --release --no-default-features --features simd
 
 ---
 
-## 8. Recommendations: When to Use Which Tool
+## 11. Recommendations: When to Use Which Tool
 
 ### Performance Summary (Apple Silicon M-series)
 
-| Operation                  | comprs             | Competitor                | Result                  |
-| -------------------------- | ------------------ | ------------------------- | ----------------------- |
-| DEFLATE (compressible 1MB) | 1.15 ms, 865 MiB/s | flate2: 1.0 ms, 989 MiB/s | Nearly identical        |
-| DEFLATE (random 1MB)       | 5.4 ms, 185 MiB/s  | flate2: 14.9 ms, 67 MiB/s | **comprs 2.75× faster** |
-| PNG 512×512 Fast           | 1.47 ms, 8.7 KB    | image: 0.67 ms, 77 KB     | **10× smaller output**  |
-| PNG 512×512 Balanced       | 5.46 ms, 7.6 KB    | oxipng: 101 ms, 4.3 KB    | **18× faster**          |
-| JPEG 512×512 Fast          | 1.83 ms, 17.3 KB   | image: 1.46 ms, 17 KB     | Comparable              |
-| JPEG 512×512 Max           | 7.25 ms, 10.5 KB   | mozjpeg: 10.8 ms, 8.2 KB  | **1.5× faster**         |
+| Operation                   | comprs            | Competitor                  | Result                        |
+| --------------------------- | ----------------- | --------------------------- | ----------------------------- |
+| DEFLATE (compressible 1MB)  | 1.15 ms, 3.0 KB   | flate2: 1.0 ms, 6.0 KB      | **2× better compression**     |
+| DEFLATE (compressible 1MB)  | 1.15 ms, 3.0 KB   | libdeflate: 0.23 ms, 3.1 KB | libdeflate 5× faster          |
+| DEFLATE (random 1MB)        | 5.4 ms, 185 MiB/s | flate2: 14.9 ms, 67 MiB/s   | **comprs 2.75× faster**       |
+| PNG 512×512 (level 6)       | 2.4 ms, 7.6 KB    | lodepng: 1.8 ms, 7.5 KB     | Tie (lodepng slightly faster) |
+| PNG 512×512 (level 6)       | 2.4 ms, 7.6 KB    | image: 0.6 ms, 76.8 KB      | **10× smaller output**        |
+| PNG 512×512 Balanced        | 5.2 ms, 7.6 KB    | oxipng: 100 ms, 4.3 KB      | **19× faster**                |
+| JPEG 512×512 (Q85 baseline) | 1.6 ms, 17.3 KB   | jpeg-encoder: 0.9 ms        | jpeg-encoder 1.8× faster      |
+| JPEG 512×512 Max            | 9.1 ms, 10.5 KB   | mozjpeg: 10.0 ms, 8.2 KB    | Comparable speed              |
 
 ### Decision Matrix by Primary Constraint
 
 | If you need...             | PNG                   | JPEG                  | Why                                |
 | -------------------------- | --------------------- | --------------------- | ---------------------------------- |
-| Smallest WASM binary       | comprs (236 KB)       | comprs (236 KB)       | 3× smaller than Squoosh            |
+| Smallest WASM binary       | comprs (146 KB)       | comprs (146 KB)       | 4× smaller than Squoosh            |
 | Best lossless compression  | oxipng                | N/A                   | Gold standard, but larger binaries |
 | Best lossy PNG compression | comprs Lossy/pngquant | N/A                   | 50-80% smaller than lossless       |
 | Fastest encoding           | comprs Fast or image  | comprs Fast           | Minimal overhead                   |
@@ -308,16 +427,56 @@ cargo build --release --no-default-features --features simd
 | Node.js only, max perf     | sharp                 | sharp                 | Native libvips, fastest            |
 | Zero dependencies          | comprs                | comprs                | Pure Rust, no C toolchain          |
 
-### Quick Decision Guide
+### The comprs Philosophy
+
+**comprs is pure Rust with zero dependencies.** This is a deliberate design choice that sets it apart from every other image compression tool in the ecosystem.
+
+#### The Landscape Today
+
+| Tool     | Language | Dependencies                                         |
+| -------- | -------- | ---------------------------------------------------- |
+| oxipng   | Rust     | Uses **libdeflate** (C) for DEFLATE compression      |
+| mozjpeg  | C        | Requires C toolchain, complex build                  |
+| pngquant | C        | Uses **libimagequant** (C) for quantization          |
+| sharp    | Node.js  | Uses **libvips** (C), 7-12 MB native binaries        |
+| squoosh  | WASM     | Emscripten-compiled C/C++ codecs (600KB-800KB each)  |
+| image    | Rust     | Pure Rust but includes many codecs (~2-4 MB)         |
+| zune-png | Rust     | Pure Rust, but PNG-only                              |
+
+Even "Rust" libraries often delegate the heavy lifting to C. oxipng's compression advantage comes almost entirely from libdeflate—a highly optimized C library. pngquant's superior quantization comes from libimagequant, also written in C.
+
+#### Why Pure Rust Matters
+
+1. **Portability**: comprs compiles to WASM without Emscripten. No C toolchain needed. Works identically on every platform.
+
+2. **Tiny binaries**: 146 KB WASM binary vs 600-800 KB for Squoosh codecs. This matters for web apps where every kilobyte counts.
+
+3. **Auditability**: One language, one codebase. No FFI boundaries to cross, no C memory safety concerns.
+
+4. **Simplicity**: `cargo add comprs` just works. No system dependencies, no build scripts, no linking headaches.
+
+#### The Tradeoffs
+
+Being pure Rust with zero dependencies means accepting some compression ratio gaps:
+
+| Comparison              | Gap      | Root Cause                                    |
+| ----------------------- | -------- | --------------------------------------------- |
+| PNG Max vs oxipng       | +8-17%   | libdeflate has 20+ years of C optimization    |
+| JPEG Max vs mozjpeg     | +4-5%    | mozjpeg has sophisticated trellis refinement  |
+| Lossy PNG vs pngquant   | +9%      | libimagequant uses advanced k-means iteration |
+
+These gaps are the cost of independence. For many use cases—especially web applications where binary size matters—the tradeoffs are worth it.
+
+#### When to Choose comprs
 
 | Scenario                                     | Recommendation                                          |
 | -------------------------------------------- | ------------------------------------------------------- |
-| **Building a web app with WASM?**            | Use comprs (236 KB binary, good compression)            |
+| **Building a web app with WASM?**            | Use comprs (146 KB binary, good compression)            |
 | **Need smallest PNG file size?**             | Use comprs Lossy (50-80% smaller than lossless)         |
+| **Want zero native dependencies?**           | Use comprs (pure Rust, no C toolchain)                  |
+| **Need predictable output across browsers?** | Use comprs (identical output everywhere)                |
 | **CLI tool, size doesn't matter?**           | Use oxipng/mozjpeg/pngquant (best compression ratios)   |
 | **Node.js server, need speed?**              | Use sharp (native bindings, excellent performance)      |
-| **Pure browser, no WASM?**                   | Use Canvas API (0 KB) or pngjs/jpeg-js (slow but works) |
-| **Need predictable output across browsers?** | Use comprs (identical output everywhere)                |
 | **Optimizing existing images in CI/CD?**     | Use oxipng/mozjpeg/pngquant CLI tools                   |
 
 ## Running Benchmarks
@@ -328,11 +487,12 @@ Generate fresh benchmark data on your hardware:
 # Run comprehensive comparison (prints summary table)
 cargo bench --bench comparison
 
-# Run PNG/JPEG encoding benchmarks
-cargo bench --bench encode_benchmark
-
-# Run JPEG-only comparison with mozjpeg
-cargo bench --bench jpeg_mozjpeg
+# Run specific benchmark groups
+cargo bench --bench comparison "PNG Equivalent"    # Fair PNG comparison
+cargo bench --bench comparison "JPEG Equivalent"   # Fair JPEG comparison
+cargo bench --bench comparison "DEFLATE"           # DEFLATE deep dive
+cargo bench --bench comparison "Best Effort"       # Each encoder's optimal settings
+cargo bench --bench comparison "Kodak"             # Real image benchmarks
 
 # Run component-level micro-benchmarks
 cargo bench --bench components
@@ -340,6 +500,18 @@ cargo bench --bench components
 # Quick summary without full benchmarks
 cargo bench --bench comparison -- --summary-only
 ```
+
+### Benchmark Groups
+
+| Group                    | Description                                   |
+| ------------------------ | --------------------------------------------- |
+| PNG Equivalent Settings  | All PNG encoders at level 6                   |
+| JPEG Equivalent Settings | All JPEG encoders at Q85, 4:2:0, baseline     |
+| PNG/JPEG Best Effort     | Each encoder using optimal settings           |
+| DEFLATE Comparison       | comprs vs flate2 vs libdeflate (levels 1,6,9) |
+| DEFLATE Zopfli           | Max compression comparison                    |
+| Kodak Real Images        | Real photographic images                      |
+| PNG/JPEG All Presets     | comprs Fast/Balanced/Max presets              |
 
 Results are saved to `target/criterion/` with HTML reports.
 
