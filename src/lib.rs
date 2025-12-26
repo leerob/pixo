@@ -1,4 +1,4 @@
-//! # comprs
+//! # pixo
 //!
 //! A minimal-dependency, high-performance image compression library with PNG
 //! and JPEG encoders written entirely in Rust.
@@ -15,9 +15,9 @@
 //! ## Quickstart
 //!
 //! ```rust
-//! use comprs::{jpeg, png, ColorType};
+//! use pixo::{png, jpeg, ColorType};
 //!
-//! # fn main() -> comprs::Result<()> {
+//! # fn main() -> pixo::Result<()> {
 //! // PNG: 3x1 RGB pixels (red, green, blue)
 //! let png_pixels = vec![255, 0, 0, 0, 255, 0, 0, 0, 255];
 //! let png_bytes = png::encode(&png_pixels, 3, 1, ColorType::Rgb)?;
@@ -34,10 +34,10 @@
 //! ### Custom options (PNG)
 //!
 //! ```rust
-//! use comprs::png::{FilterStrategy, PngOptions};
-//! use comprs::{png, ColorType};
+//! use pixo::png::{FilterStrategy, PngOptions};
+//! use pixo::{png, ColorType};
 //!
-//! # fn main() -> comprs::Result<()> {
+//! # fn main() -> pixo::Result<()> {
 //! let pixels = vec![255, 0, 0, 0, 255, 0, 0, 0, 255];
 //! let options = PngOptions::builder()
 //!     .preset(1) // balanced: compression level 6, adaptive filters + lossless opts
@@ -53,10 +53,10 @@
 //! ### Custom options (JPEG)
 //!
 //! ```rust
-//! use comprs::jpeg::{self, JpegOptions};
-//! use comprs::ColorType;
+//! use pixo::jpeg::{self, JpegOptions};
+//! use pixo::ColorType;
 //!
-//! # fn main() -> comprs::Result<()> {
+//! # fn main() -> pixo::Result<()> {
 //! let pixels = vec![255, 0, 0];
 //! let options = JpegOptions::max(85); // progressive + trellis + optimized Huffman
 //! let jpg_bytes =
@@ -69,9 +69,9 @@
 //! ### Buffer reuse
 //!
 //! ```rust
-//! use comprs::{jpeg, png, ColorType};
+//! use pixo::{jpeg, png, ColorType};
 //!
-//! # fn main() -> comprs::Result<()> {
+//! # fn main() -> pixo::Result<()> {
 //! let pixels = vec![255, 0, 0, 0, 255, 0]; // 2 RGB pixels
 //! let mut png_buf = Vec::new();
 //! png::encode_into(

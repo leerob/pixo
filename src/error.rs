@@ -1,8 +1,8 @@
-//! Error types for the comprs library.
+//! Error types for the pixo library.
 
 use std::fmt;
 
-/// Result type alias for comprs operations.
+/// Result type alias for pixo operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors that can occur during image encoding.
@@ -81,3 +81,99 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_display_invalid_dimensions() {
+        let err = Error::InvalidDimensions {
+            width: 0,
+            height: 100,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("0x100"));
+    }
+
+    #[test]
+    fn test_error_display_invalid_data_length() {
+        let err = Error::InvalidDataLength {
+            expected: 100,
+            actual: 50,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("100"));
+        assert!(msg.contains("50"));
+    }
+
+    #[test]
+    fn test_error_display_invalid_quality() {
+        let err = Error::InvalidQuality(0);
+        let msg = format!("{err}");
+        assert!(msg.contains("0"));
+        assert!(msg.contains("1-100"));
+    }
+
+    #[test]
+    fn test_error_display_invalid_compression_level() {
+        let err = Error::InvalidCompressionLevel(10);
+        let msg = format!("{err}");
+        assert!(msg.contains("10"));
+        assert!(msg.contains("1-9"));
+    }
+
+    #[test]
+    fn test_error_display_image_too_large() {
+        let err = Error::ImageTooLarge {
+            width: 100000,
+            height: 100000,
+            max: 65535,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("100000"));
+        assert!(msg.contains("65535"));
+    }
+
+    #[test]
+    fn test_error_display_unsupported_color_type() {
+        let err = Error::UnsupportedColorType;
+        let msg = format!("{err}");
+        assert!(msg.contains("Unsupported color type"));
+    }
+
+    #[test]
+    fn test_error_display_compression_error() {
+        let err = Error::CompressionError("test error".to_string());
+        let msg = format!("{err}");
+        assert!(msg.contains("test error"));
+    }
+
+    #[test]
+    fn test_error_display_invalid_restart_interval() {
+        let err = Error::InvalidRestartInterval(0);
+        let msg = format!("{err}");
+        assert!(msg.contains("0"));
+        assert!(msg.contains("1-65535"));
+    }
+
+    #[test]
+    fn test_error_is_error_trait() {
+        let err: Box<dyn std::error::Error> = Box::new(Error::InvalidQuality(0));
+        assert!(err.to_string().contains("Invalid quality"));
+    }
+
+    #[test]
+    fn test_error_debug() {
+        let err = Error::InvalidQuality(50);
+        let debug = format!("{err:?}");
+        assert!(debug.contains("InvalidQuality"));
+    }
+
+    #[test]
+    fn test_error_clone_and_eq() {
+        let err1 = Error::InvalidQuality(50);
+        let err2 = err1.clone();
+        assert_eq!(err1, err2);
+    }
+}

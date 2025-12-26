@@ -222,8 +222,8 @@ Our library provides several strategies:
 | `AdaptiveFast` | Try Sub/Up/Paeth with early exit | Medium | Good |
 | `Adaptive` | Try all 5 per row | Slow | Best |
 
-```rust,ignore
-use comprs::png::{PngOptions, FilterStrategy};
+```rust
+use pixo::png::{PngOptions, FilterStrategy};
 
 let options = PngOptions {
     filter_strategy: FilterStrategy::MinSum,

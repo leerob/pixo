@@ -359,4 +359,162 @@ mod tests {
         // MSB first, padded with 1s: 101_11111 = 0xBF
         assert_eq!(result, vec![0b10111111]);
     }
+
+    #[test]
+    fn test_bit_writer_write_byte_aligned() {
+        let mut writer = BitWriter::new();
+        writer.write_byte(0xAB);
+        let result = writer.finish();
+        assert_eq!(result, vec![0xAB]);
+    }
+
+    #[test]
+    fn test_bit_writer_write_byte_unaligned() {
+        let mut writer = BitWriter::new();
+        writer.write_bits(0b1, 1); // one bit set
+        writer.write_byte(0xFF);
+        let result = writer.finish();
+        // First bit 1, then 0xFF = 11111111, becomes 1_1111111|1 = 0xFF, 0x01
+        assert_eq!(result, vec![0xFF, 0x01]);
+    }
+
+    #[test]
+    fn test_bit_writer_write_bytes_aligned() {
+        let mut writer = BitWriter::new();
+        writer.write_bytes(&[0xAB, 0xCD]);
+        let result = writer.finish();
+        assert_eq!(result, vec![0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_bit_writer_write_bytes_unaligned() {
+        let mut writer = BitWriter::new();
+        writer.write_bits(0b1, 1);
+        writer.write_bytes(&[0xFF, 0xFF]);
+        let result = writer.finish();
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_bit_writer_len_and_is_empty() {
+        let mut writer = BitWriter::new();
+        assert!(writer.is_empty());
+        assert_eq!(writer.len(), 0);
+
+        writer.write_bits(0xFF, 8);
+        assert!(!writer.is_empty());
+        assert_eq!(writer.len(), 1);
+    }
+
+    #[test]
+    fn test_bit_writer_bit_position() {
+        let mut writer = BitWriter::new();
+        assert_eq!(writer.bit_position(), 0);
+
+        writer.write_bits(0b101, 3);
+        assert_eq!(writer.bit_position(), 3);
+
+        writer.write_bits(0b11111, 5);
+        assert_eq!(writer.bit_position(), 0); // full byte written
+    }
+
+    #[test]
+    fn test_bit_writer_default() {
+        let writer: BitWriter = Default::default();
+        assert!(writer.is_empty());
+    }
+
+    #[test]
+    fn test_bit_writer64_single_bits() {
+        let mut writer = BitWriter64::new();
+        writer.write_bit(true);
+        writer.write_bit(false);
+        writer.write_bit(true);
+        writer.write_bit(false);
+        writer.write_bit(true);
+        writer.write_bit(true);
+        writer.write_bit(false);
+        writer.write_bit(true);
+
+        let result = writer.finish();
+        assert_eq!(result, vec![0b10110101]);
+    }
+
+    #[test]
+    fn test_bit_writer64_len_is_empty() {
+        let mut writer = BitWriter64::new();
+        assert!(writer.is_empty());
+        assert_eq!(writer.len(), 0);
+
+        writer.write_bits(0xFF, 8);
+        assert!(!writer.is_empty());
+        assert_eq!(writer.len(), 1);
+    }
+
+    #[test]
+    fn test_bit_writer64_default() {
+        let writer: BitWriter64 = Default::default();
+        assert!(writer.is_empty());
+    }
+
+    #[test]
+    fn test_bit_writer_msb_single_bits() {
+        let mut writer = BitWriterMsb::new();
+        writer.write_bit(true);
+        writer.write_bit(false);
+        writer.write_bit(true);
+        writer.write_bit(false);
+        writer.write_bit(true);
+        writer.write_bit(false);
+        writer.write_bit(true);
+        writer.write_bit(false);
+
+        let result = writer.finish();
+        assert_eq!(result, vec![0b10101010]);
+    }
+
+    #[test]
+    fn test_bit_writer_msb_write_bytes() {
+        let mut writer = BitWriterMsb::new();
+        writer.write_bytes(&[0xAB, 0xCD]);
+        let result = writer.finish();
+        assert_eq!(result, vec![0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_bit_writer_msb_len_is_empty() {
+        let mut writer = BitWriterMsb::new();
+        assert!(writer.is_empty());
+        assert_eq!(writer.len(), 0);
+
+        // Write a non-0xFF byte to avoid byte stuffing
+        writer.write_bits(0x42, 8);
+        assert!(!writer.is_empty());
+        assert_eq!(writer.len(), 1);
+    }
+
+    #[test]
+    fn test_bit_writer_msb_default() {
+        let writer: BitWriterMsb = Default::default();
+        assert!(writer.is_empty());
+    }
+
+    #[test]
+    fn test_bit_writer_msb_byte_stuffing_0xff() {
+        let mut writer = BitWriterMsb::new();
+        writer.write_bits(0xFF, 8);
+        let result = writer.finish();
+        // 0xFF should be followed by 0x00 for JPEG byte stuffing
+        assert_eq!(result, vec![0xFF, 0x00]);
+    }
+
+    #[test]
+    fn test_bit_writer_msb_flush_with_0xff_pad() {
+        let mut writer = BitWriterMsb::new();
+        // Write 7 ones, leaving one bit to pad
+        writer.write_bits(0b1111111, 7);
+        let result = writer.finish();
+        // Padding with 1s gives 0xFF, which triggers byte stuffing
+        assert_eq!(result, vec![0xFF, 0x00]);
+    }
 }

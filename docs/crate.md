@@ -1,6 +1,6 @@
 # Rust Crate
 
-Use comprs as a library in your Rust projects.
+Use pixo as a library in your Rust projects.
 
 ## Installation
 
@@ -8,7 +8,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-comprs = "0.1"
+pixo = "0.1"
 ```
 
 ## Toolchain
@@ -17,9 +17,9 @@ The project builds and tests on **stable Rust 1.82+**.
 
 ## PNG Encoding
 
-```rust,ignore
-use comprs::{png, ColorType};
-use comprs::png::{FilterStrategy, PngOptions};
+```rust
+use pixo::{png, ColorType};
+use pixo::png::{FilterStrategy, PngOptions};
 
 // Encode RGB pixels as PNG
 let pixels: Vec<u8> = vec![255, 0, 0, 0, 255, 0, 0, 0, 255]; // 3 RGB pixels
@@ -40,19 +40,19 @@ let png_data =
 
 ## JPEG Encoding
 
-```rust,ignore
-use comprs::{jpeg, ColorType};
+```rust
+use pixo::{jpeg, ColorType};
 
 // Encode RGB pixels as JPEG
 let pixels: Vec<u8> = vec![255, 128, 64]; // 1 RGB pixel
 let jpeg_data = jpeg::encode(&pixels, 1, 1, 85).unwrap(); // quality: 1-100
 
 // With subsampling options (4:4:4 default, 4:2:0 available)
-use comprs::jpeg::JpegOptions;
+use pixo::jpeg::{JpegOptions, Subsampling};
 
 let options = JpegOptions::balanced(85);
 let jpeg_data =
-    jpeg::encode_with_options(&pixels, 1, 1, 85, ColorType::Rgb, &options).unwrap();
+    jpeg::encode_with_options(&pixels, 1, 1, ColorType::Rgb, &options).unwrap();
 ```
 
 ## Buffer Reuse
@@ -78,7 +78,6 @@ jpeg::encode_with_options_into(
     &pixels,
     3,
     1,
-    85,
     ColorType::Rgb,
     &jpeg::JpegOptions {
         quality: 85,
@@ -113,7 +112,7 @@ Note: JPEG only supports `Gray` and `Rgb` color types.
 Lossy palette quantization can be enabled by setting:
 
 ```rust,ignore
-use comprs::png::{PngOptions, QuantizationMode};
+use pixo::png::{PngOptions, QuantizationMode};
 
 let options = PngOptions::builder()
     .quantization_mode(QuantizationMode::Auto) // enable palette quantization when beneficial

@@ -160,4 +160,28 @@ mod tests {
             assert_eq!(ColorType::try_from(val).unwrap(), ct);
         }
     }
+
+    #[test]
+    fn test_png_color_type() {
+        assert_eq!(ColorType::Gray.png_color_type(), 0);
+        assert_eq!(ColorType::GrayAlpha.png_color_type(), 4);
+        assert_eq!(ColorType::Rgb.png_color_type(), 2);
+        assert_eq!(ColorType::Rgba.png_color_type(), 6);
+    }
+
+    #[test]
+    fn test_png_bit_depth() {
+        assert_eq!(ColorType::Gray.png_bit_depth(), 8);
+        assert_eq!(ColorType::GrayAlpha.png_bit_depth(), 8);
+        assert_eq!(ColorType::Rgb.png_bit_depth(), 8);
+        assert_eq!(ColorType::Rgba.png_bit_depth(), 8);
+    }
+
+    #[test]
+    fn test_rgba_to_ycbcr() {
+        // RGBA to YCbCr should ignore alpha
+        let (y1, cb1, cr1) = rgb_to_ycbcr(255, 0, 0);
+        let (y2, cb2, cr2) = rgba_to_ycbcr(255, 0, 0, 128);
+        assert_eq!((y1, cb1, cr1), (y2, cb2, cr2));
+    }
 }

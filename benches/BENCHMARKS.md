@@ -2,12 +2,12 @@
 
 Last updated: December 2025
 
-This document provides a comprehensive comparison of comprs against other image compression tools, helping you make informed decisions based on your specific requirements.
+This document provides a comprehensive comparison of pixo against other image compression tools, helping you make informed decisions based on your specific requirements.
 
 ## Environment
 
 - **Host**: Apple Silicon (M-series) / x86_64
-- **Toolchain**: rustc 1.88.0 (release) for comprs
+- **Toolchain**: rustc 1.88.0 (release) for pixo
 - **SIMD**: ARM64 NEON on Apple Silicon, AVX2/SSE on x86_64
 - **External binaries** (for reference comparisons):
   - oxipng: Homebrew install, `-o4 --strip safe`
@@ -53,23 +53,23 @@ All encoders tested at **compression level 6** with adaptive filtering for a fai
 
 ### Synthetic Images (512×512)
 
-| Image Type  | comprs         | image crate     | lodepng        | Winner         |
+| Image Type  | pixo         | image crate     | lodepng        | Winner         |
 | ----------- | -------------- | --------------- | -------------- | -------------- |
 | Gradient    | 7.6 KB / 2.4ms | 76.8 KB / 0.6ms | 7.5 KB / 1.8ms | lodepng (size) |
 | Flat Blocks | 0.4 KB / 2.5ms | 0.5 KB / 0.5ms  | 0.4 KB / 3.3ms | Tie            |
 
 ### Real Images (Kodak Photos)
 
-| Image   | Dimensions | comprs        | image crate  | lodepng       | Winner               |
+| Image   | Dimensions | pixo        | image crate  | lodepng       | Winner               |
 | ------- | ---------- | ------------- | ------------ | ------------- | -------------------- |
-| kodim01 | 768×512    | 475 KB / 15ms | 673 KB / 3ms | 475 KB / 12ms | Tie (comprs/lodepng) |
-| kodim03 | 768×512    | 364 KB / 13ms | 497 KB / 3ms | 364 KB / 10ms | Tie (comprs/lodepng) |
+| kodim01 | 768×512    | 475 KB / 15ms | 673 KB / 3ms | 475 KB / 12ms | Tie (pixo/lodepng) |
+| kodim03 | 768×512    | 364 KB / 13ms | 497 KB / 3ms | 364 KB / 10ms | Tie (pixo/lodepng) |
 
 **Key Findings:**
 
-- comprs and lodepng produce **nearly identical file sizes** at level 6
-- comprs is **2-3× slower** than image crate but produces **10× smaller files**
-- lodepng (C library) is slightly faster than comprs but requires native bindings
+- pixo and lodepng produce **nearly identical file sizes** at level 6
+- pixo is **2-3× slower** than image crate but produces **10× smaller files**
+- lodepng (C library) is slightly faster than pixo but requires native bindings
 
 ---
 
@@ -79,14 +79,14 @@ All encoders tested at **quality 85, 4:2:0 subsampling, baseline mode** for fair
 
 ### Synthetic Images (512×512)
 
-| Image Type  | comprs          | image crate     | jpeg-encoder    | Winner               |
+| Image Type  | pixo          | image crate     | jpeg-encoder    | Winner               |
 | ----------- | --------------- | --------------- | --------------- | -------------------- |
 | Gradient    | 17.3 KB / 1.6ms | 16.7 KB / 1.5ms | 17.4 KB / 0.9ms | jpeg-encoder (speed) |
 | Flat Blocks | 3.5 KB / 1.5ms  | 3.4 KB / 1.4ms  | 3.5 KB / 0.8ms  | jpeg-encoder (speed) |
 
 ### Real Images (Kodak Photos)
 
-| Image   | Dimensions | comprs        | image crate   | jpeg-encoder  | Winner     |
+| Image   | Dimensions | pixo        | image crate   | jpeg-encoder  | Winner     |
 | ------- | ---------- | ------------- | ------------- | ------------- | ---------- |
 | kodim01 | 768×512    | 52.8 KB / 5ms | 53.0 KB / 5ms | 53.2 KB / 3ms | Tie (size) |
 | kodim03 | 768×512    | 39.2 KB / 5ms | 39.5 KB / 5ms | 39.4 KB / 3ms | Tie (size) |
@@ -95,7 +95,7 @@ All encoders tested at **quality 85, 4:2:0 subsampling, baseline mode** for fair
 
 - All three encoders produce **nearly identical file sizes** at equivalent settings
 - jpeg-encoder is **~2× faster** due to SIMD optimizations in baseline mode
-- comprs's advantage comes from **advanced features** (progressive, trellis, Huffman optimization)
+- pixo's advantage comes from **advanced features** (progressive, trellis, Huffman optimization)
 
 ---
 
@@ -107,7 +107,7 @@ All libraries tested at **compression level 6** on 1 MB payloads.
 
 | Library    | Output Size | Ratio  | Throughput  | Notes                |
 | ---------- | ----------- | ------ | ----------- | -------------------- |
-| **comprs** | 3.0 KB      | 336.6× | 865 MiB/s   | Pure Rust, zero deps |
+| **pixo** | 3.0 KB      | 336.6× | 865 MiB/s   | Pure Rust, zero deps |
 | libdeflate | 3.1 KB      | 332.4× | 4,265 MiB/s | C library, fastest   |
 | flate2     | 6.0 KB      | 169.9× | 989 MiB/s   | miniz_oxide backend  |
 
@@ -115,7 +115,7 @@ All libraries tested at **compression level 6** on 1 MB payloads.
 
 | Library    | Output Size | Ratio | Throughput | Notes       |
 | ---------- | ----------- | ----- | ---------- | ----------- |
-| **comprs** | 1.0 MB      | 1.0×  | 185 MiB/s  | Pure Rust   |
+| **pixo** | 1.0 MB      | 1.0×  | 185 MiB/s  | Pure Rust   |
 | libdeflate | 1.0 MB      | 1.0×  | 94 MiB/s   | C library   |
 | flate2     | 1.0 MB      | 1.0×  | 67 MiB/s   | miniz_oxide |
 
@@ -123,23 +123,23 @@ All libraries tested at **compression level 6** on 1 MB payloads.
 
 | Library        | Output Size | Time   | Notes                              |
 | -------------- | ----------- | ------ | ---------------------------------- |
-| comprs (lvl 9) | 146 B       | 91 µs  | Fast, good compression             |
+| pixo (lvl 9) | 146 B       | 91 µs  | Fast, good compression             |
 | **zopfli**     | 189 B       | 222 ms | Best compression, **2400× slower** |
 
 **Key Findings:**
 
-- comprs achieves **2× better compression ratio** than flate2 on compressible data
+- pixo achieves **2× better compression ratio** than flate2 on compressible data
 - libdeflate is **5× faster** but requires C bindings
-- comprs is **2.75× faster** than flate2 on random data
+- pixo is **2.75× faster** than flate2 on random data
 - zopfli achieves only ~1.5% better compression but is **2400× slower**
 
 ---
 
 ## 4. PNG Preset Comparison
 
-Comparing comprs presets against oxipng and the image crate. All columns show **size / time**.
+Comparing pixo presets against oxipng and the image crate. All columns show **size / time**.
 
-| Image                       | Dimensions | comprs Fast      | comprs Balanced  | comprs Max      | oxipng           | image crate   | Delta vs oxipng |
+| Image                       | Dimensions | pixo Fast      | pixo Balanced  | pixo Max      | oxipng           | image crate   | Delta vs oxipng |
 | --------------------------- | ---------- | ---------------- | ---------------- | --------------- | ---------------- | ------------- | --------------- |
 | playground.png              | 1460×1080  | 1,475,576 / 0.4s | 1,340,919 / 0.2s | 1,332,458 / 77s | 1,134,213 / 2.1s | ~1.4MB / 0.3s | +17.5%          |
 | squoosh_example.png         | 1460×1280  | 2,366,900 / 0.2s | 1,928,383 / 0.4s | 1,859,691 / 41s | 1,633,408 / 1.8s | ~2.0MB / 0.4s | +13.9%          |
@@ -158,9 +158,9 @@ Comparing comprs presets against oxipng and the image crate. All columns show **
 
 | Tool                | Settings                                                                         |
 | ------------------- | -------------------------------------------------------------------------------- |
-| comprs Fast [1]     | level=2, AdaptiveFast filter, no optimizations                                   |
-| comprs Balanced [2] | level=6, Adaptive filter, alpha_opt, reduce_color, reduce_palette, strip_meta    |
-| comprs Max [3]      | level=9, MinSum filter, optimal LZ77 parsing, iterative Huffman, block splitting |
+| pixo Fast [1]     | level=2, AdaptiveFast filter, no optimizations                                   |
+| pixo Balanced [2] | level=6, Adaptive filter, alpha_opt, reduce_color, reduce_palette, strip_meta    |
+| pixo Max [3]      | level=9, MinSum filter, optimal LZ77 parsing, iterative Huffman, block splitting |
 | oxipng [4]          | `-o4 --strip safe` (Homebrew install)                                            |
 | image crate [5]     | Default PngEncoder settings                                                      |
 
@@ -174,17 +174,17 @@ Lossy PNG compression reduces file size by limiting the color palette to 256 col
 
 Testing on actual images from the test fixtures:
 
-| Image            | Dimensions | comprs Lossy | pngquant | Delta    | Winner     |
+| Image            | Dimensions | pixo Lossy | pngquant | Delta    | Winner     |
 | ---------------- | ---------- | ------------ | -------- | -------- | ---------- |
 | avatar-color.png | 740×740    | 122.9 KB     | 113.1 KB | +9%      | pngquant   |
-| rocket.png       | 1376×768   | 279.0 KB     | 392.9 KB | **-29%** | **comprs** |
+| rocket.png       | 1376×768   | 279.0 KB     | 392.9 KB | **-29%** | **pixo** |
 
 **Key findings:**
 
-- On images with solid colors/flat areas (rocket.png), **comprs wins by 28%**
+- On images with solid colors/flat areas (rocket.png), **pixo wins by 28%**
 - On complex photographic images, pngquant's libimagequant produces smaller files
 - Both achieve **50-80% reduction** compared to lossless PNG
-- comprs has zero external dependencies (146 KB WASM vs pngquant's native binary)
+- pixo has zero external dependencies (146 KB WASM vs pngquant's native binary)
 
 ### Synthetic Benchmark (512×512 gradient)
 
@@ -192,28 +192,28 @@ Gradient images are a **worst-case scenario** for quantization because they cont
 
 | Encoder         | Size    | Time     | Notes                              |
 | --------------- | ------- | -------- | ---------------------------------- |
-| comprs Lossless | 7.6 KB  | 5.46 ms  | Baseline (no quantization)         |
-| comprs Lossy    | 5.4 KB  | 8.18 ms  | 256 colors, no dithering (-29%)    |
+| pixo Lossless | 7.6 KB  | 5.46 ms  | Baseline (no quantization)         |
+| pixo Lossy    | 5.4 KB  | 8.18 ms  | 256 colors, no dithering (-29%)    |
 | imagequant      | 64.2 KB | 36.38 ms | libimagequant (dithered, larger)   |
 | pngquant        | 61.6 KB | 54.32 ms | --quality=65-80 (dithered, larger) |
 
-> **Note**: On gradient images, the dithering applied by imagequant/pngquant creates noise patterns that are harder to compress with DEFLATE. comprs's simpler median-cut without dithering produces better results for this edge case.
+> **Note**: On gradient images, the dithering applied by imagequant/pngquant creates noise patterns that are harder to compress with DEFLATE. pixo's simpler median-cut without dithering produces better results for this edge case.
 
 ### When to Use Lossy PNG
 
 | Scenario                            | Recommendation                               |
 | ----------------------------------- | -------------------------------------------- |
 | **Photographic images**             | Use lossy - 50-80% smaller than lossless     |
-| **Images with flat colors/UI**      | comprs Lossy often beats pngquant            |
+| **Images with flat colors/UI**      | pixo Lossy often beats pngquant            |
 | **Complex photos, max compression** | pngquant produces smaller files              |
 | **Icons and logos (<256 colors)**   | Use lossless - already optimized             |
-| **WASM bundle size matters**        | comprs Lossy (no external deps, 146 KB WASM) |
+| **WASM bundle size matters**        | pixo Lossy (no external deps, 146 KB WASM) |
 
 ### Lossy PNG Settings
 
 | Tool         | Settings                                                                |
 | ------------ | ----------------------------------------------------------------------- |
-| comprs Lossy | median-cut quantization, 256 colors, optional Floyd-Steinberg dithering |
+| pixo Lossy | median-cut quantization, 256 colors, optional Floyd-Steinberg dithering |
 | pngquant     | `--quality=65-80 --speed=4` (libimagequant internally)                  |
 | imagequant   | Rust bindings to libimagequant library                                  |
 
@@ -221,9 +221,9 @@ Gradient images are a **worst-case scenario** for quantization because they cont
 
 ## 6. JPEG Preset Comparison
 
-Comparing comprs presets against mozjpeg and the image crate. All columns show **size / time**.
+Comparing pixo presets against mozjpeg and the image crate. All columns show **size / time**.
 
-| Image           | Dimensions | comprs Fast     | comprs Balanced | comprs Max      | mozjpeg          | image crate     | Delta vs mozjpeg |
+| Image           | Dimensions | pixo Fast     | pixo Balanced | pixo Max      | mozjpeg          | image crate     | Delta vs mozjpeg |
 | --------------- | ---------- | --------------- | --------------- | --------------- | ---------------- | --------------- | ---------------- |
 | multi-agent.jpg | 2300×1342  | 435.9KB / 94ms  | 435.9KB / 181ms | 368.0KB / 251ms | 352.3KB / ~200ms | ~480KB / ~100ms | **+4.4%**        |
 | browser.jpg     | 2300×1342  | 383.4KB / 94ms  | 383.4KB / 179ms | 309.7KB / 253ms | 297.2KB / ~200ms | ~420KB / ~100ms | **+4.2%**        |
@@ -242,9 +242,9 @@ Comparing comprs presets against mozjpeg and the image crate. All columns show *
 
 | Tool                | Settings                                                               |
 | ------------------- | ---------------------------------------------------------------------- |
-| comprs Fast [1]     | quality 85, 4:4:4 subsampling, baseline DCT, no optimization           |
-| comprs Balanced [2] | quality 85, 4:4:4 subsampling, Huffman optimization                    |
-| comprs Max [3]      | quality 85, 4:2:0 subsampling, progressive, trellis quant, Huffman opt |
+| pixo Fast [1]     | quality 85, 4:4:4 subsampling, baseline DCT, no optimization           |
+| pixo Balanced [2] | quality 85, 4:4:4 subsampling, Huffman optimization                    |
+| pixo Max [3]      | quality 85, 4:2:0 subsampling, progressive, trellis quant, Huffman opt |
 | mozjpeg [4]         | `cjpeg -quality 85 -optimize -progressive` (Homebrew install)          |
 | image crate [5]     | quality 85, default settings                                           |
 
@@ -256,7 +256,7 @@ Critical for web applications where bundle size impacts load time.
 
 | Library         | WASM Size  | Notes                               |
 | --------------- | ---------- | ----------------------------------- |
-| **comprs**      | **146 KB** | Zero deps, pure Rust, lossy PNG [1] |
+| **pixo**      | **146 KB** | Zero deps, pure Rust, lossy PNG [1] |
 | wasm-mozjpeg    | ~208 KB    | Emscripten compiled                 |
 | squoosh oxipng  | ~625 KB    | Google's Squoosh codec              |
 | squoosh mozjpeg | ~803 KB    | Google's Squoosh codec              |
@@ -264,7 +264,7 @@ Critical for web applications where bundle size impacts load time.
 
 ### Binary Size Footnotes
 
-[1] comprs build configuration:
+[1] pixo build configuration:
 
 ```toml
 [profile.release]
@@ -279,11 +279,11 @@ Build command for the 146 KB binary:
 
 ```bash
 cargo build --target wasm32-unknown-unknown --release --no-default-features --features wasm,simd
-wasm-bindgen --target web --out-dir web/src/lib/comprs-wasm --out-name comprs target/wasm32-unknown-unknown/release/comprs.wasm
+wasm-bindgen --target web --out-dir web/src/lib/pixo-wasm --out-name pixo target/wasm32-unknown-unknown/release/pixo.wasm
 wasm-opt -Oz --strip-debug --strip-dwarf --strip-producers --strip-target-features \
   --enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int \
-  -o web/src/lib/comprs-wasm/comprs_bg.wasm \
-  web/src/lib/comprs-wasm/comprs_bg.wasm
+  -o web/src/lib/pixo-wasm/pixo_bg.wasm \
+  web/src/lib/pixo-wasm/pixo_bg.wasm
 ```
 
 ---
@@ -296,7 +296,7 @@ Comparison of Rust image compression libraries.
 
 | Library        | WASM-friendly   | Binary Size  | Throughput | SIMD Support | Notes                                          |
 | -------------- | --------------- | ------------ | ---------- | ------------ | ---------------------------------------------- |
-| **comprs**     | Yes             | ~146 KB      | Excellent  | NEON + AVX2  | Zero deps, pure Rust, lossy PNG, parallel JPEG |
+| **pixo**     | Yes             | ~146 KB      | Excellent  | NEON + AVX2  | Zero deps, pure Rust, lossy PNG, parallel JPEG |
 | `image`        | Yes             | ~2-4 MB      | Good       | Limited      | Pure Rust, many codecs included                |
 | `jpeg-encoder` | Yes             | ~50 KB       | Excellent  | AVX2         | Pure Rust JPEG encoder, SIMD optimized         |
 | `lodepng`      | No (C bindings) | N/A          | Excellent  | No           | C lodepng library bindings                     |
@@ -308,7 +308,7 @@ Comparison of Rust image compression libraries.
 
 | Library       | WASM-friendly   | Throughput  | Compression | Notes                            |
 | ------------- | --------------- | ----------- | ----------- | -------------------------------- |
-| **comprs**    | Yes             | 865 MiB/s   | 336×        | Pure Rust, zero deps             |
+| **pixo**    | Yes             | 865 MiB/s   | 336×        | Pure Rust, zero deps             |
 | `flate2`      | Yes             | 989 MiB/s   | 170×        | miniz_oxide backend, widely used |
 | `libdeflater` | No (C bindings) | 4,265 MiB/s | 332×        | C libdeflate bindings, fastest   |
 | `zopfli`      | Yes             | 0.3 MiB/s   | 340×        | Max compression, very slow       |
@@ -352,7 +352,7 @@ Comparison of JavaScript and Node.js image compression options.
 
 ## 10. Platform-Specific Optimizations
 
-comprs includes extensive SIMD optimizations that automatically activate based on the target platform.
+pixo includes extensive SIMD optimizations that automatically activate based on the target platform.
 
 ### ARM64 (Apple Silicon, AWS Graviton)
 
@@ -379,7 +379,7 @@ comprs includes extensive SIMD optimizations that automatically activate based o
 
 ### Parallel Processing
 
-When compiled with the `parallel` feature (default), comprs uses Rayon for multi-core acceleration:
+When compiled with the `parallel` feature (default), pixo uses Rayon for multi-core acceleration:
 
 | Operation          | Parallelization Strategy | Typical Speedup          |
 | ------------------ | ------------------------ | ------------------------ |
@@ -403,11 +403,11 @@ cargo build --release --no-default-features --features simd
 
 ### Performance Summary (Apple Silicon M-series)
 
-| Operation                   | comprs            | Competitor                  | Result                        |
+| Operation                   | pixo            | Competitor                  | Result                        |
 | --------------------------- | ----------------- | --------------------------- | ----------------------------- |
 | DEFLATE (compressible 1MB)  | 1.15 ms, 3.0 KB   | flate2: 1.0 ms, 6.0 KB      | **2× better compression**     |
 | DEFLATE (compressible 1MB)  | 1.15 ms, 3.0 KB   | libdeflate: 0.23 ms, 3.1 KB | libdeflate 5× faster          |
-| DEFLATE (random 1MB)        | 5.4 ms, 185 MiB/s | flate2: 14.9 ms, 67 MiB/s   | **comprs 2.75× faster**       |
+| DEFLATE (random 1MB)        | 5.4 ms, 185 MiB/s | flate2: 14.9 ms, 67 MiB/s   | **pixo 2.75× faster**       |
 | PNG 512×512 (level 6)       | 2.4 ms, 7.6 KB    | lodepng: 1.8 ms, 7.5 KB     | Tie (lodepng slightly faster) |
 | PNG 512×512 (level 6)       | 2.4 ms, 7.6 KB    | image: 0.6 ms, 76.8 KB      | **10× smaller output**        |
 | PNG 512×512 Balanced        | 5.2 ms, 7.6 KB    | oxipng: 100 ms, 4.3 KB      | **19× faster**                |
@@ -418,18 +418,18 @@ cargo build --release --no-default-features --features simd
 
 | If you need...             | PNG                   | JPEG                  | Why                                |
 | -------------------------- | --------------------- | --------------------- | ---------------------------------- |
-| Smallest WASM binary       | comprs (146 KB)       | comprs (146 KB)       | 4× smaller than Squoosh            |
+| Smallest WASM binary       | pixo (146 KB)       | pixo (146 KB)       | 4× smaller than Squoosh            |
 | Best lossless compression  | oxipng                | N/A                   | Gold standard, but larger binaries |
-| Best lossy PNG compression | comprs Lossy/pngquant | N/A                   | 50-80% smaller than lossless       |
-| Fastest encoding           | comprs Fast or image  | comprs Fast           | Minimal overhead                   |
-| Best speed/size tradeoff   | comprs Balanced       | comprs Balanced       | Good compression, fast enough      |
-| Browser + Node support     | comprs, pngjs, jimp   | comprs, jpeg-js, jimp | Pure JS/WASM, no native deps       |
+| Best lossy PNG compression | pixo Lossy/pngquant | N/A                   | 50-80% smaller than lossless       |
+| Fastest encoding           | pixo Fast or image  | pixo Fast           | Minimal overhead                   |
+| Best speed/size tradeoff   | pixo Balanced       | pixo Balanced       | Good compression, fast enough      |
+| Browser + Node support     | pixo, pngjs, jimp   | pixo, jpeg-js, jimp | Pure JS/WASM, no native deps       |
 | Node.js only, max perf     | sharp                 | sharp                 | Native libvips, fastest            |
-| Zero dependencies          | comprs                | comprs                | Pure Rust, no C toolchain          |
+| Zero dependencies          | pixo                | pixo                | Pure Rust, no C toolchain          |
 
-### The comprs Philosophy
+### The pixo Philosophy
 
-**comprs is pure Rust with zero dependencies.** This is a deliberate design choice that sets it apart from every other image compression tool in the ecosystem.
+**pixo is pure Rust with zero dependencies.** This is a deliberate design choice that sets it apart from every other image compression tool in the ecosystem.
 
 #### The Landscape Today
 
@@ -447,13 +447,13 @@ Even "Rust" libraries often delegate the heavy lifting to C. oxipng's compressio
 
 #### Why Pure Rust Matters
 
-1. **Portability**: comprs compiles to WASM without Emscripten. No C toolchain needed. Works identically on every platform.
+1. **Portability**: pixo compiles to WASM without Emscripten. No C toolchain needed. Works identically on every platform.
 
 2. **Tiny binaries**: 146 KB WASM binary vs 600-800 KB for Squoosh codecs. This matters for web apps where every kilobyte counts.
 
 3. **Auditability**: One language, one codebase. No FFI boundaries to cross, no C memory safety concerns.
 
-4. **Simplicity**: `cargo add comprs` just works. No system dependencies, no build scripts, no linking headaches.
+4. **Simplicity**: `cargo add pixo` just works. No system dependencies, no build scripts, no linking headaches.
 
 #### The Tradeoffs
 
@@ -467,14 +467,14 @@ Being pure Rust with zero dependencies means accepting some compression ratio ga
 
 These gaps are the cost of independence. For many use cases—especially web applications where binary size matters—the tradeoffs are worth it.
 
-#### When to Choose comprs
+#### When to Choose pixo
 
 | Scenario                                     | Recommendation                                          |
 | -------------------------------------------- | ------------------------------------------------------- |
-| **Building a web app with WASM?**            | Use comprs (146 KB binary, good compression)            |
-| **Need smallest PNG file size?**             | Use comprs Lossy (50-80% smaller than lossless)         |
-| **Want zero native dependencies?**           | Use comprs (pure Rust, no C toolchain)                  |
-| **Need predictable output across browsers?** | Use comprs (identical output everywhere)                |
+| **Building a web app with WASM?**            | Use pixo (146 KB binary, good compression)            |
+| **Need smallest PNG file size?**             | Use pixo Lossy (50-80% smaller than lossless)         |
+| **Want zero native dependencies?**           | Use pixo (pure Rust, no C toolchain)                  |
+| **Need predictable output across browsers?** | Use pixo (identical output everywhere)                |
 | **CLI tool, size doesn't matter?**           | Use oxipng/mozjpeg/pngquant (best compression ratios)   |
 | **Node.js server, need speed?**              | Use sharp (native bindings, excellent performance)      |
 | **Optimizing existing images in CI/CD?**     | Use oxipng/mozjpeg/pngquant CLI tools                   |
@@ -508,10 +508,10 @@ cargo bench --bench comparison -- --summary-only
 | PNG Equivalent Settings  | All PNG encoders at level 6                   |
 | JPEG Equivalent Settings | All JPEG encoders at Q85, 4:2:0, baseline     |
 | PNG/JPEG Best Effort     | Each encoder using optimal settings           |
-| DEFLATE Comparison       | comprs vs flate2 vs libdeflate (levels 1,6,9) |
+| DEFLATE Comparison       | pixo vs flate2 vs libdeflate (levels 1,6,9) |
 | DEFLATE Zopfli           | Max compression comparison                    |
 | Kodak Real Images        | Real photographic images                      |
-| PNG/JPEG All Presets     | comprs Fast/Balanced/Max presets              |
+| PNG/JPEG All Presets     | pixo Fast/Balanced/Max presets              |
 
 Results are saved to `target/criterion/` with HTML reports.
 

@@ -1,7 +1,7 @@
-# comprs
+# pixo
 
-[![crates.io](https://img.shields.io/crates/v/comprs.svg)](https://crates.io/crates/comprs)
-[![docs.rs](https://docs.rs/comprs/badge.svg)](https://docs.rs/comprs)
+[![crates.io](https://img.shields.io/crates/v/pixo.svg)](https://crates.io/crates/pixo)
+[![docs.rs](https://docs.rs/pixo/badge.svg)](https://docs.rs/pixo)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 A minimal-dependency, high-performance image compression library written in Rust.
@@ -14,10 +14,11 @@ This is a work-in-progress and exploration of coding agents.
 - **Entirely in Rust** — No C or C++ codecs required
 - **PNG and JPEG support** — Lossless PNG, lossy PNG (quantization), and lossy JPEG
 - **Small WASM binary** — 142 KB with competitive compression ([benchmarks](./benches/BENCHMARKS.md))
+- **Well-tested** — 76% code coverage, 264 tests ([codebase comparison](./docs/codebase-size-comparison.md))
 
 ## Usage
 
-1. **[Playground](https://comprs.vercel.app/)** (recommended) — Try it in your browser
+1. **[Playground](https://pixo.vercel.app/)** (recommended) — Try it in your browser
 2. **[WASM](./docs/wasm.md)** — Use in browser or Node.js applications
 3. **[CLI](./docs/cli.md)** — Compress images from the command line
 4. **[Rust Crate](./docs/crate.md)** — Use as a library in your Rust projects
@@ -28,7 +29,7 @@ Comprehensive guides explaining the algorithms and compression strategies:
 
 - [Documentation Index](./docs/README.md) — Start here for an overview
 - [Introduction to Image Compression](./docs/introduction-to-image-compression.md) — Why and how we compress images
-- [Introduction to Rust](./docs/introduction-to-rust.md) — Rust features through the lens of comprs
+- [Introduction to Rust](./docs/introduction-to-rust.md) — Rust features through the lens of pixo
 
 ### Core Algorithms
 
