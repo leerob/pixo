@@ -6,7 +6,7 @@ This document explores the history and philosophy behind advanced compression te
 
 All compression faces the same core tension:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    The Compression Tradeoff                      │
 │                                                                  │
@@ -29,7 +29,7 @@ All compression faces the same core tension:
 
 Modern codecs like mozjpeg don't use one clever trick—they use *dozens* of small optimizations that each shave off 1-5%. These compound:
 
-```
+```text
 0.95 × 0.97 × 0.95 × 0.98 × 0.96 = 0.82
 ```
 
@@ -47,7 +47,7 @@ Every major compression advancement falls into one of three categories:
 
 The classic example is the **Discrete Cosine Transform (DCT)** used in JPEG. Natural images have a property: nearby pixels are usually similar. The DCT exploits this by converting spatial data (pixel values) into frequency data (how fast values change).
 
-```
+```text
 Spatial Domain          Frequency Domain
 ┌───────────────┐      ┌───────────────┐
 │ 52 55 61 66   │      │ 420  -8  -2   │
@@ -73,7 +73,7 @@ The rest becomes small numbers, often zero.
 
 **Huffman coding** (1952) is the foundation. It assigns shorter codes to frequent symbols:
 
-```
+```text
 Frequency-Based Codes
 ═════════════════════
 Letter   Frequency   Naive Code   Huffman Code
@@ -96,7 +96,7 @@ But Huffman has limits. It must assign whole bits, so a symbol with 90% probabil
 
 This is the most sophisticated approach. Instead of asking "how do I encode this data?", we ask "what data should I encode?"
 
-```
+```text
 The R-D Framework
 ═════════════════
 Every encoding decision has two costs:
@@ -153,7 +153,7 @@ This was revolutionary for 1992. But each choice left performance on the table.
 
 **The technique**: Scale all DCT constants by 2^13, use integer arithmetic, round carefully at each stage.
 
-```
+```text
 Floating-point:  cos(π/8) = 0.9238795...
 Fixed-point:     (0.9238795 × 8192) ≈ 7568
 
@@ -171,7 +171,7 @@ Multiplication becomes:
 
 **The technique**: Instead of encoding each 8×8 block completely before moving to the next, split the encoding into multiple "scans":
 
-```
+```text
 Progressive Scan Structure
 ══════════════════════════
 
@@ -210,7 +210,7 @@ Scan 3-N: Higher frequencies (details, texture)
 
 **The problem in detail**:
 
-```
+```text
 Quantization Decision
 ═════════════════════
 DCT coefficient: 47.3
@@ -227,7 +227,7 @@ The optimal choice depends on context!
 
 **The technique**: Model this as a graph problem
 
-```
+```text
 Trellis Graph
 ═════════════
 Each coefficient position has multiple candidates.
@@ -293,7 +293,7 @@ Information theory tells us: the more you know about what comes next, the fewer 
 
 Our eyes and brains don't perceive all information equally:
 
-```
+```text
 What Humans Notice vs. What Compression Sees
 ════════════════════════════════════════════
 
@@ -326,7 +326,7 @@ Some optimizations face a chicken-and-egg problem: the optimal choice at step A 
 
 The classic example is **LZ77 + Huffman** (used in Deflate/PNG):
 
-```
+```text
 The Chicken-and-Egg Problem
 ════════════════════════════
 LZ77 parsing decides which matches to use.
@@ -340,7 +340,7 @@ Which do we optimize first?
 
 **The solution**: Iterate until convergence.
 
-```
+```text
 Iterative Refinement (Zopfli-style)
 ═══════════════════════════════════
 
@@ -373,7 +373,7 @@ Typically converges in 5-15 iterations.
 
 Here's why mature codecs like mozjpeg are hard to beat:
 
-```
+```text
 Starting with baseline JPEG (100%)
 ═══════════════════════════════════
 
@@ -420,7 +420,7 @@ When implementing compression:
 ### JPEG Specific
 - ITU-T T.81: The original JPEG specification
 - Lakhani, G. (2003). "Optimal Huffman Coding of DCT Blocks"
-- mozjpeg documentation: https://github.com/mozilla/mozjpeg
+- mozjpeg documentation: <https://github.com/mozilla/mozjpeg>
 
 ### Rate-Distortion Theory
 - Berger, T. (1971). "Rate Distortion Theory"
@@ -428,7 +428,7 @@ When implementing compression:
 
 ### Deflate/PNG Specific
 - RFC 1951: DEFLATE Compressed Data Format Specification
-- Zopfli documentation: https://github.com/google/zopfli
+- Zopfli documentation: <https://github.com/google/zopfli>
 - Pinho et al. (2004). "A note on Zeng's technique for color reindexing" (palette optimization)
 
 ### Implementation References

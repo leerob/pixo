@@ -4,7 +4,7 @@
 
 Imagine you have a 4K photograph (3840 × 2160 pixels). Each pixel needs 3 bytes (one each for red, green, and blue). That's:
 
-```
+```text
 3840 × 2160 × 3 = 24,883,200 bytes ≈ 24 MB
 ```
 
@@ -58,7 +58,7 @@ Compression works by exploiting **redundancy** — the observation that most dat
 
 Not all colors appear equally often. In a photo of a blue sky, blue pixels vastly outnumber others.
 
-```
+```text
 If we assign shorter codes to common colors and longer codes to rare colors,
 we can reduce the average bits per pixel.
 
@@ -76,7 +76,7 @@ Average: 0.6×2 + 0.3×3 + 0.1×4 = 2.5 bits vs 8 bits per pixel = 3.2x savings!
 
 Adjacent pixels in an image are usually similar. A photo of a wall doesn't change color dramatically from pixel to pixel.
 
-```
+```text
 Original row:     128, 130, 129, 131, 128, 132, 130, 129
 Differences:           +2,  -1,  +2,  -3,  +4,  -2,  -1
 
@@ -89,7 +89,7 @@ The differences are smaller numbers that compress better!
 
 Natural images are dominated by low-frequency components (smooth gradients) with relatively few high-frequency components (sharp edges).
 
-```
+```text
 Consider a gradient from dark to light:
 
 Low frequency (slow change):  ████████████████
@@ -124,7 +124,7 @@ In 1948, Claude Shannon published "A Mathematical Theory of Communication" which
 
 For a source with symbols appearing with probabilities p₁, p₂, ..., pₙ:
 
-```
+```text
 H = -Σ pᵢ × log₂(pᵢ)
 ```
 
@@ -153,7 +153,7 @@ This library implements two complete encoding pipelines:
 
 ### PNG Pipeline (Lossless)
 
-```
+```text
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │ Raw Pixels  │───▶│  Filtering  │───▶│  DEFLATE    │───▶│  PNG File   │
 │             │    │  (predict)  │    │ (compress)  │    │             │
@@ -170,7 +170,7 @@ This library implements two complete encoding pipelines:
 
 ### JPEG Pipeline (Lossy)
 
-```
+```text
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │ Raw Pixels  │───▶│  Color      │───▶│    DCT      │───▶│ Quantize    │
 │   (RGB)     │    │  Convert    │    │ (frequency) │    │ (lose info) │

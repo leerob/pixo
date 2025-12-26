@@ -1,4 +1,8 @@
 //! Compression algorithms.
+//!
+//! For background on how these pieces fit together, see
+//! [`crate::guides::deflate`], [`crate::guides::huffman_coding`],
+//! and [`crate::guides::lz77_compression`].
 
 pub mod adler32;
 pub mod crc32;

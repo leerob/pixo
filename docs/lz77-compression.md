@@ -6,13 +6,13 @@ LZ77, invented by Abraham Lempel and Jacob Ziv in 1977, is the foundation of man
 
 Consider this text:
 
-```
+```text
 "the cat sat on the mat"
 ```
 
 Notice anything? The word "the" appears twice, and "at" appears three times! Instead of spelling everything out, we could say:
 
-```
+```text
 "the cat sat on (copy 13 chars back, length 4)mat"
                  └── refers to "the " ──┘
 ```
@@ -25,7 +25,7 @@ LZ77 uses a **sliding window** that looks back at recently processed data. When 
 
 ### The Sliding Window
 
-```
+```text
 Already processed (can reference)    Current position    Not yet seen
          ◄──── WINDOW ────►                │
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -44,7 +44,7 @@ LZ77 produces a stream of **tokens**, each being either:
 1. **Literal**: A single byte that couldn't be matched
 2. **Match**: A (length, distance) pair referring to previous data
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 pub enum Token {
     /// A literal byte that couldn't be compressed.
@@ -61,7 +61,7 @@ pub enum Token {
 
 Let's compress: `ABRACADABRA`
 
-```
+```text
 Position 0: A
   Window: (empty)
   No match found → Literal 'A'
@@ -114,7 +114,7 @@ The window size is a trade-off:
 
 DEFLATE uses a **32KB window** (32,768 bytes), a well-chosen balance that works great for most data.
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 /// Maximum distance to look back for matches (32KB window).
 pub const MAX_DISTANCE: usize = 32768;
@@ -134,7 +134,7 @@ The solution: **hash chains**. We hash the first 3 bytes at each position and ma
 
 ### How Hash Chains Work
 
-```
+```text
 Data: "the cat sat on the mat"
                       ▲
                       └── Current position, looking at "the"
@@ -153,7 +153,7 @@ When we need to find a match for "the" at position 14:
 3. Check each position in the chain for actual matches
 4. Follow the chain until we find the best match or reach the limit
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 /// Hash function for 3-byte sequences.
 fn hash3(data: &[u8], pos: usize) -> usize {
@@ -186,7 +186,7 @@ Different compression levels trade speed for compression ratio by adjusting chai
 | 8     | 1024         | No            |
 | 9     | 4096         | No            |
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 let (max_chain_length, lazy_matching) = match level {
     1 => (4, false),
@@ -219,7 +219,7 @@ A 2-byte match would need similar bits to just sending 2 literal bytes. The brea
 
 LZ77 can reference data that overlaps the current position! This enables powerful run-length encoding.
 
-```
+```text
 Data: "AAAAAAAAAA" (10 A's)
 
 Position 0: Literal 'A'
@@ -269,7 +269,7 @@ When combined with Huffman coding (as in DEFLATE), these improve to:
 
 Here's the complete compression loop:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs - simplified
 pub fn compress(&mut self, data: &[u8]) -> Vec<Token> {
     let mut tokens = Vec::with_capacity(data.len());

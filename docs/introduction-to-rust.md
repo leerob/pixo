@@ -23,7 +23,7 @@ The most distinctive feature of Rust is its **ownership system**. Every value ha
 
 ### The Rules
 
-```
+```text
 1. Each value has exactly one owner
 2. When the owner goes out of scope, the value is dropped
 3. Ownership can be transferred (moved) or borrowed
@@ -33,7 +33,7 @@ The most distinctive feature of Rust is its **ownership system**. Every value ha
 
 Consider our LZ77 compressor:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 pub fn compress(&mut self, data: &[u8]) -> Vec<Token> {
     let mut tokens = Vec::with_capacity(data.len());
@@ -50,7 +50,7 @@ Let's trace what happens:
 
 If we tried to use `tokens` after returning it, the compiler would reject our code:
 
-```rust
+```rust,ignore
 // This won't compile!
 let tokens = compressor.compress(data);
 let oops = tokens;     // Ownership moves to 'oops'
@@ -61,7 +61,7 @@ println!("{:?}", tokens);  // Error: tokens was moved
 
 Often we want to use a value without taking ownership. That's what **references** are for:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 pub fn compress_into(&mut self, data: &[u8], tokens: &mut Vec<Token>) {
     // data is borrowed immutably (&[u8])
@@ -78,7 +78,7 @@ The reference types tell us:
 
 **The borrowing rules:**
 
-```
+```text
 At any given time, you can have EITHER:
   - One mutable reference (&mut T), OR
   - Any number of immutable references (&T)
@@ -109,7 +109,7 @@ struct Token {
 
 In Rust, the enum itself carries the data:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
@@ -131,7 +131,7 @@ The `#[derive(...)]` attribute automatically implements common traits—`Debug` 
 
 To use an enum, you **match** on it:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs (test)
 for token in &tokens {
     match token {
@@ -152,7 +152,7 @@ The compiler **requires** you to handle every variant. If we added a new `Token:
 
 Rust has no null pointers. Instead, optional values use the `Option` enum:
 
-```rust
+```rust,ignore
 // Part of the standard library
 enum Option<T> {
     Some(T),
@@ -162,7 +162,7 @@ enum Option<T> {
 
 From our LZ77 implementation:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 fn find_best_match(&self, data: &[u8], pos: usize, chain_limit: usize) 
     -> Option<(usize, usize)>  // Returns Some((length, distance)) or None
@@ -178,7 +178,7 @@ fn find_best_match(&self, data: &[u8], pos: usize, chain_limit: usize)
 
 To use the result, you must handle both cases:
 
-```rust
+```rust,ignore
 if let Some((length, distance)) = best_match {
     // We have a match—use it
     tokens.push(Token::Match { length, distance });
@@ -194,7 +194,7 @@ The compiler won't let you forget to handle `None`. No null pointer exceptions, 
 
 Rust doesn't have exceptions. Instead, fallible operations return `Result`:
 
-```rust
+```rust,ignore
 // Part of the standard library
 enum Result<T, E> {
     Ok(T),   // Success, carrying a value of type T
@@ -206,7 +206,7 @@ enum Result<T, E> {
 
 We define our own error type:
 
-```rust
+```rust,ignore
 // From src/error.rs
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -228,7 +228,7 @@ Each variant carries exactly the data needed to describe the error. No stringly-
 
 We define a type alias for convenience:
 
-```rust
+```rust,ignore
 // From src/error.rs
 pub type Result<T> = std::result::Result<T, Error>;
 ```
@@ -237,7 +237,7 @@ Now `Result<Vec<u8>>` means "either a `Vec<u8>` or an `Error`".
 
 ### Using Results in Practice
 
-```rust
+```rust,ignore
 // From src/png/mod.rs
 pub fn encode(data: &[u8], width: u32, height: u32, color_type: ColorType) 
     -> Result<Vec<u8>> 
@@ -263,7 +263,7 @@ pub fn encode(data: &[u8], width: u32, height: u32, color_type: ColorType)
 
 The **`?` operator** propagates errors automatically:
 
-```rust
+```rust,ignore
 // This:
 let png = encode(&pixels, width, height, color_type)?;
 
@@ -282,7 +282,7 @@ Rust structs are plain data containers. Methods are defined in separate `impl` b
 
 ### Defining a Struct
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 pub struct Lz77Compressor {
     /// Hash table: maps hash -> most recent position
@@ -298,7 +298,7 @@ pub struct Lz77Compressor {
 
 ### Adding Methods
 
-```rust
+```rust,ignore
 impl Lz77Compressor {
     /// Create a new LZ77 compressor.
     pub fn new(level: u8) -> Self {
@@ -338,7 +338,7 @@ Note the naming conventions:
 
 For complex configuration, we use structs with sensible defaults:
 
-```rust
+```rust,ignore
 // From src/png/mod.rs
 #[derive(Debug, Clone)]
 pub struct PngOptions {
@@ -364,7 +364,7 @@ impl Default for PngOptions {
 
 Users can create options with defaults and override what they need:
 
-```rust
+```rust,ignore
 let opts = PngOptions {
     compression_level: 9,
     ..PngOptions::default()  // Use defaults for everything else
@@ -379,7 +379,7 @@ Traits define shared behavior across types—similar to interfaces in other lang
 
 The `Display` trait controls how a type is formatted with `{}`:
 
-```rust
+```rust,ignore
 // From src/error.rs
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -404,7 +404,7 @@ Now our error type works with Rust's standard error handling ecosystem.
 
 `Default` provides a sensible default value:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 impl Default for Lz77Compressor {
     fn default() -> Self {
@@ -415,7 +415,7 @@ impl Default for Lz77Compressor {
 
 This enables:
 
-```rust
+```rust,ignore
 let compressor = Lz77Compressor::default();
 // or in struct initialization:
 let opts = PngOptions::default();
@@ -429,7 +429,7 @@ Rust's iterators are **zero-cost abstractions**—they compile to the same machi
 
 From our co-occurrence matrix construction:
 
-```rust
+```rust,ignore
 // From src/png/mod.rs
 fn weighted_edges(matrix: &[Vec<u32>]) -> Vec<(usize, usize)> {
     let mut edges: Vec<((usize, usize), u32)> = Vec::new();
@@ -456,7 +456,7 @@ Key iterator methods:
 
 Iterators compose elegantly:
 
-```rust
+```rust,ignore
 // From src/png/mod.rs
 let new_indexed: Vec<u8> = indexed
     .iter()
@@ -472,7 +472,7 @@ Rust code is organized into modules. By default, everything is private.
 
 ### Module Structure
 
-```rust
+```rust,ignore
 // From src/lib.rs
 pub mod bits;        // Public module
 pub mod color;
@@ -490,7 +490,7 @@ pub use error::{Error, Result};
 
 ### Visibility Modifiers
 
-```
+```text
 pub           — visible everywhere
 pub(crate)    — visible within this crate only  
 pub(super)    — visible to parent module
@@ -499,7 +499,7 @@ pub(super)    — visible to parent module
 
 Example:
 
-```rust
+```rust,ignore
 // From src/color.rs
 impl ColorType {
     // Public: anyone can call this
@@ -527,7 +527,7 @@ Rust supports conditional compilation with the `#[cfg]` attribute.
 
 ### Feature Flags
 
-```rust
+```rust,ignore
 // From src/lib.rs
 #[cfg(feature = "simd")]
 pub mod simd;
@@ -540,7 +540,7 @@ pub mod wasm;
 
 SIMD implementations differ by architecture:
 
-```rust
+```rust,ignore
 // From src/simd/mod.rs
 #[inline]
 pub fn adler32(data: &[u8]) -> u32 {
@@ -572,7 +572,7 @@ The compiler only includes code for the target platform. No runtime dispatch ove
 
 For x86, we detect CPU features at runtime:
 
-```rust
+```rust,ignore
 if is_x86_feature_detected!("avx2") {
     // Use AVX2 implementation
 }
@@ -590,7 +590,7 @@ Rust's safety guarantees come from the compiler. Sometimes we need to do things 
 2. **FFI** — interfacing with C code
 3. **Raw pointer manipulation** — rarely, for performance
 
-```rust
+```rust,ignore
 // From src/simd/x86_64.rs
 #[target_feature(enable = "sse2")]
 pub unsafe fn score_filter_sse2(filtered: &[u8]) -> u64 {
@@ -615,7 +615,7 @@ The `unsafe` keyword marks a **trust boundary**:
 
 We declare our safety policy at the crate level:
 
-```rust
+```rust,ignore
 // From src/lib.rs
 // Only allow unsafe when SIMD or WASM feature is enabled
 #![cfg_attr(not(any(feature = "simd", feature = "wasm")), forbid(unsafe_code))]
@@ -627,7 +627,7 @@ This means the core compression algorithms contain zero unsafe code. Only the op
 
 Rust provides attributes to guide optimization:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 #[inline(always)]
 fn hash4(data: &[u8], pos: usize) -> usize {
@@ -646,7 +646,7 @@ The `#[inline]` attribute is a hint. `#[inline(always)]` is stronger—use spari
 
 Rust can evaluate code at compile time:
 
-```rust
+```rust,ignore
 // From src/jpeg/dct.rs
 /// Precomputed cosine values for IDCT.
 const COS_TABLE: [[f32; 8]; 8] = precompute_cos_table();
@@ -674,7 +674,7 @@ The `const fn` keyword means this function can run at compile time. The resultin
 
 Slices (`&[T]`) are views into contiguous sequences. They're the primary way to work with arrays and vectors.
 
-```rust
+```rust,ignore
 // From src/bits.rs
 pub fn write_bytes(&mut self, bytes: &[u8]) {
     for &byte in bytes {
@@ -685,7 +685,7 @@ pub fn write_bytes(&mut self, bytes: &[u8]) {
 
 Slices carry their length, preventing buffer overflows:
 
-```rust
+```rust,ignore
 let data: Vec<u8> = vec![1, 2, 3, 4, 5];
 let slice: &[u8] = &data[1..4];  // [2, 3, 4]
 println!("{}", slice.len());     // 3
@@ -693,7 +693,7 @@ println!("{}", slice.len());     // 3
 
 The `chunks` and `chunks_exact` methods are particularly useful for image processing:
 
-```rust
+```rust,ignore
 // Process 4 bytes at a time (RGBA pixels)
 for chunk in data.chunks_exact(4) {
     let r = chunk[0];
@@ -708,7 +708,7 @@ for chunk in data.chunks_exact(4) {
 
 Most of the time, Rust infers lifetimes. Occasionally, we need to be explicit:
 
-```rust
+```rust,ignore
 // From src/png/mod.rs
 fn maybe_optimize_alpha<'a>(
     data: &'a [u8],
@@ -729,7 +729,7 @@ This pattern lets us avoid allocation when no modification is needed.
 
 Here's a complete example showing many Rust features working together:
 
-```rust
+```rust,ignore
 // From src/color.rs
 /// Convert RGB to YCbCr color space (used by JPEG).
 #[inline]
@@ -768,7 +768,7 @@ This function demonstrates:
 
 We provide both allocating and non-allocating versions of functions:
 
-```rust
+```rust,ignore
 // Allocates a new Vec
 pub fn compress(&mut self, data: &[u8]) -> Vec<Token> {
     let mut tokens = Vec::with_capacity(data.len());
@@ -787,7 +787,7 @@ This lets callers avoid repeated allocations in hot loops.
 
 ### 2. Presets with Override
 
-```rust
+```rust,ignore
 impl PngOptions {
     pub fn fast() -> Self { /* low compression, high speed */ }
     pub fn balanced() -> Self { /* good tradeoff */ }
@@ -807,7 +807,7 @@ Users get sensible defaults with easy customization.
 
 ### 3. Exhaustive Matching with Early Return
 
-```rust
+```rust,ignore
 // Handle error cases first
 if width == 0 || height == 0 {
     return Err(Error::InvalidDimensions { width, height });
@@ -843,9 +843,9 @@ Continue to [Huffman Coding](./huffman-coding.md) to learn the foundational entr
 
 This introduction covers the Rust features most relevant to understanding pixo. To dive deeper into Rust itself:
 
-- **The Rust Book**: https://doc.rust-lang.org/book/
-- **Rust by Example**: https://doc.rust-lang.org/rust-by-example/
-- **The Rustonomicon** (for unsafe): https://doc.rust-lang.org/nomicon/
+- **The Rust Book**: <https://doc.rust-lang.org/book/>
+- **Rust by Example**: <https://doc.rust-lang.org/rust-by-example/>
+- **The Rustonomicon** (for unsafe): <https://doc.rust-lang.org/nomicon/>
 
 Within this codebase, explore:
 

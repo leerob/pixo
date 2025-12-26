@@ -8,13 +8,13 @@ The core is a two-stage approach: first find repeated patterns, then encode them
 
 Consider this sentence:
 
-```
+```text
 "to be or not to be"
 ```
 
 Notice anything? "to be" appears twice! Instead of storing 18 characters, we could say:
 
-```
+```text
 "to be or not [copy 6 chars from 13 back]"
 ```
 
@@ -26,7 +26,7 @@ This is DEFLATE in a nutshell:
 
 ## The Big Picture
 
-```
+```text
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │  Input      │───▶│    LZ77     │───▶│  Huffman    │───▶ Compressed
 │  Data       │    │ (find       │    │  Encoding   │     Output
@@ -44,7 +44,7 @@ This two-stage approach achieves better compression than either algorithm alone.
 
 DEFLATE organizes data into **blocks**. Each block can use different compression settings:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │ Block 1           │ Block 2           │ Block 3 (final)        │
 │ (fixed Huffman)   │ (dynamic Huffman) │ (stored)               │
@@ -58,7 +58,7 @@ Each block starts with a 3-bit header:
 | 1 bit  | BFINAL: 1 if this is the last block                              |
 | 2 bits | BTYPE: Block type (00=stored, 01=fixed, 10=dynamic, 11=reserved) |
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 fn encode_fixed_huffman(tokens: &[Token]) -> Vec<u8> {
     let mut writer = BitWriter::new();
@@ -89,7 +89,7 @@ fn encode_fixed_huffman(tokens: &[Token]) -> Vec<u8> {
 
 Our implementation supports both fixed and dynamic Huffman tables, choosing the smaller result, and also exposes an optional optimal path (Zopfli-style) that re-parses the stream to squeeze out extra bytes:
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 pub fn deflate(data: &[u8], level: u8) -> Vec<u8> {
     let mut lz77 = Lz77Compressor::new(level);
@@ -106,7 +106,7 @@ pub fn deflate_optimal(data: &[u8], iterations: usize) -> Vec<u8> {
 
 DEFLATE uses a unified alphabet for literals (0-255), end-of-block (256), and lengths (257-285):
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────┐
 │ 0-255: Literal bytes                                         │
 │ 256:   End of block marker                                   │
@@ -128,7 +128,7 @@ Match lengths (3-258) are encoded as codes 257-285 plus extra bits:
 | ...  | ...    | ...        | ...   |
 | 285  | 258    | 0          | 258   |
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 const LENGTH_BASE: [u16; 29] = [
     3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
@@ -163,7 +163,7 @@ Distances (1-32768) have their own alphabet (0-29) with extra bits:
 | ...  | ...         | ...        | ...         |
 | 29   | 24577-32768 | 13         | 24577-32768 |
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 const DISTANCE_BASE: [u16; 30] = [
     1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
@@ -181,7 +181,7 @@ const DISTANCE_EXTRA: [u8; 30] = [
 
 Fixed (Type 1) blocks use these predefined Huffman code lengths:
 
-```
+```text
 Literal/Length (0-287):
   Symbols   0-143: 8 bits each
   Symbols 144-255: 9 bits each
@@ -198,7 +198,7 @@ These lengths were chosen to give reasonable compression without needing to tran
 
 Let's encode the tokens from compressing "ABRACADABRA":
 
-```
+```text
 Tokens: A, B, R, A, C, A, D, Match(length=4, distance=7)
 ```
 
@@ -216,7 +216,7 @@ Step by step:
    - Distance 7 → code 5 (5 bits) + 1 extra bit (value 0)
 9. **End of block**: Symbol 256 (7 bits in fixed table)
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 for token in tokens {
     match *token {
@@ -251,7 +251,7 @@ for token in tokens {
 
 A crucial detail: DEFLATE packs bits **LSB (Least Significant Bit) first** within bytes.
 
-```
+```text
 Bits written: 1, 0, 1, 1, 0
               ▲
               │ first bit goes to bit 0 (rightmost)
@@ -269,7 +269,7 @@ Resulting byte: 0b_???01011
 
 However, Huffman codes themselves are **MSB first** within the code. So we reverse the bits when writing:
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 fn reverse_bits(code: u16, length: u8) -> u32 {
     let mut result = 0u32;
@@ -286,7 +286,7 @@ fn reverse_bits(code: u16, length: u8) -> u32 {
 
 Sometimes data is incompressible. In this case, stored blocks are more efficient:
 
-```
+```text
 ┌────┬────────┬────────┬─────────────────────────┐
 │Hdr │  LEN   │  NLEN  │      Raw Data           │
 │ 3b │ 16bit  │ 16bit  │   (up to 65535 bytes)   │
@@ -296,7 +296,7 @@ Sometimes data is incompressible. In this case, stored blocks are more efficient
 - **LEN**: Number of data bytes
 - **NLEN**: One's complement of LEN (for error checking)
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 pub fn deflate_stored(data: &[u8]) -> Vec<u8> {
     let mut output = Vec::new();
@@ -353,7 +353,7 @@ Let's trace the complete journey for a small input: `"ABRACADABRA"` (11 bytes = 
 
 LZ77 scans for repeated sequences with minimum length 3:
 
-```
+```text
 Position 0: A  → No match (window empty)        → Literal 'A'
 Position 1: B  → No match                       → Literal 'B'
 Position 2: R  → No match                       → Literal 'R'
@@ -379,7 +379,7 @@ Now we encode each token using fixed Huffman codes:
 
 **Match distance 7**: Maps to distance code 5 (5-bit code `00101`) + 1 extra bit (value 0)
 
-```
+```text
 Token          | Symbol/Code        | Bits Written
 ---------------|--------------------|--------------
 'A' (65)       | Literal 65         | 8 bits: 01100001
@@ -398,7 +398,7 @@ Block header   | BFINAL=1, BTYPE=01 | 3 bits
 
 ### Stage 3: Final Tally
 
-```
+```text
 Original:   11 bytes = 88 bits
 
 Compressed:
@@ -415,7 +415,7 @@ Compression ratio: 88 → 79 bits = 10% savings
 
 For this tiny example, the savings are modest. But the magic happens with **longer repeated patterns** and **more repetition**:
 
-```
+```text
 Input:  "ABRACADABRA ABRACADABRA ABRACADABRA" (35 bytes)
 
 LZ77:   "ABRACADABRA [copy 12 back, length 24]"
@@ -433,7 +433,7 @@ This is why DEFLATE excels on real-world data with many repeated patterns.
 
 DEFLATE cannot compress data that's already compressed (JPEG, MP3, ZIP files). Attempting to do so often makes the output *larger* due to block headers and Huffman table overhead.
 
-```
+```text
 Original ZIP:    1,000,000 bytes
 After DEFLATE:   1,000,847 bytes  ← larger!
 ```

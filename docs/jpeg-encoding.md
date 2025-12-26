@@ -23,7 +23,7 @@ JPEG (Joint Photographic Experts Group) is the most widely used image format for
 
 ## The JPEG Pipeline
 
-```
+```text
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │ Raw Pixels  │───▶│  Color      │───▶│    DCT      │───▶│  Quantize   │
 │   (RGB)     │    │  Convert    │    │ (frequency) │    │ (lossy!)    │
@@ -61,7 +61,7 @@ Why? Two reasons:
 
 2. **Decorrelation**: RGB channels are highly correlated (bright pixels have high R, G, and B). YCbCr separates these into independent signals.
 
-```rust
+```rust,ignore
 // From src/color.rs
 pub fn rgb_to_ycbcr(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
     let r = r as f32;
@@ -87,7 +87,7 @@ Notice the weights: green contributes 58.7% to brightness because human eyes hav
 
 JPEG processes the image in **8×8 blocks**. Each block is transformed independently.
 
-```
+```text
 Image divided into 8×8 blocks:
 ┌───┬───┬───┬───┐
 │ 1 │ 2 │ 3 │ 4 │
@@ -106,7 +106,7 @@ Image divided into 8×8 blocks:
 
 If the image dimensions aren't multiples of 8, we pad by replicating edge pixels.
 
-```rust
+```rust,ignore
 // From src/jpeg/mod.rs
 fn extract_block(
     data: &[u8],
@@ -136,7 +136,7 @@ The DCT converts spatial data to **frequency components**. See [DCT documentatio
 
 Key insight: After DCT, most of the image energy concentrates in the **low-frequency components** (top-left of the 8×8 block). High-frequency components (bottom-right) are often small.
 
-```
+```text
 DCT Output (typical photo block):
 ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
 │ 952 │ -27 │  14 │   3 │   0 │   1 │   0 │   0 │
@@ -158,13 +158,13 @@ The top-left value is the **DC coefficient** (average brightness). All others ar
 
 This is where JPEG discards information. Each DCT coefficient is divided by a quantization value and rounded:
 
-```
+```text
 Quantized = round(DCT_coefficient / Quantization_value)
 ```
 
 The quantization tables have larger values for high frequencies (aggressive rounding) and smaller values for low frequencies (preserve detail):
 
-```rust
+```rust,ignore
 // From src/jpeg/quantize.rs
 const STD_LUMINANCE_TABLE: [u8; 64] = [
     16, 11, 10, 16, 24, 40, 51, 61,
@@ -182,7 +182,7 @@ See [Quantization documentation](./quantization.md) for details on how quality a
 
 After quantization, many coefficients become **zero**, especially in the high-frequency region:
 
-```
+```text
 Before quantization:     After quantization (Q=75):
 952  -27   14    3       60  -2    1    0
 -29   11    5    2       -2   1    0    0
@@ -194,7 +194,7 @@ Before quantization:     After quantization (Q=75):
 
 We read the quantized coefficients in **zigzag order**, grouping low frequencies first:
 
-```
+```text
 Read order:
 ┌───┬───┬───┬───┬───┬───┬───┬───┐
 │ 0 │ 1 │ 5 │ 6 │14 │15 │27 │28 │
@@ -213,7 +213,7 @@ Read order:
 - Groups zeros together at the end
 - Enables efficient run-length encoding ("15 zeros, then -2, then EOB")
 
-```rust
+```rust,ignore
 // From src/jpeg/quantize.rs
 pub const ZIGZAG: [usize; 64] = [
     0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
@@ -227,7 +227,7 @@ pub const ZIGZAG: [usize; 64] = [
 
 DC coefficients (the average brightness of each block) change slowly between adjacent blocks. We encode the **difference** from the previous block (Differential Pulse Code Modulation):
 
-```
+```text
 Block DCs:   512,  515,  513,  516,  514
 Differences:  512,    3,   -2,    3,   -2
 
@@ -236,7 +236,7 @@ Differences are small numbers → fewer bits needed!
 
 **Why DPCM?** Adjacent 8×8 blocks in a photograph usually have similar average brightness. A blue sky might have DC values like 180, 181, 180, 182... The differences (0, 1, -1, 2) require far fewer bits than the absolute values.
 
-```rust
+```rust,ignore
 // From src/jpeg/huffman.rs
 pub fn encode_block(..., prev_dc: i16, ...) -> i16 {
     // ...
@@ -258,7 +258,7 @@ AC coefficients are encoded as (run, value) pairs:
 - **Run**: Number of zeros before this value
 - **Value**: The non-zero coefficient
 
-```
+```text
 Zigzag sequence: 60, -2, 1, 0, 0, 0, -1, 0, 0, 0, 0, 0, ...EOB
 
 Encoded as:
@@ -273,7 +273,7 @@ Encoded as:
 
 For long runs of zeros (16+), a special ZRL (zero run length) code is used:
 
-```rust
+```rust,ignore
 // From src/jpeg/huffman.rs
 while zero_run >= 16 {
     let zrl_code = tables.get_ac_code(0xF0, is_luminance);  // ZRL = 16 zeros
@@ -297,7 +297,7 @@ We can push compression further by building custom Huffman tables tuned to each 
 
 A JPEG file consists of **markers** and **segments**:
 
-```
+```text
 ┌──────────────┐
 │ SOI (FFD8)   │  Start of Image
 ├──────────────┤
@@ -317,7 +317,7 @@ A JPEG file consists of **markers** and **segments**:
 └──────────────┘
 ```
 
-```rust
+```rust,ignore
 // From src/jpeg/mod.rs
 const SOI: u16 = 0xFFD8;  // Start of Image
 const EOI: u16 = 0xFFD9;  // End of Image
@@ -332,7 +332,7 @@ const SOS: u16 = 0xFFDA;  // Start of Scan
 
 Since 0xFF marks the start of JPEG markers, if 0xFF appears in the compressed data, we must **stuff** a 0x00 after it:
 
-```
+```text
 Data byte:     0xFF
 In file:       0xFF 0x00  (stuffed)
 
@@ -340,7 +340,7 @@ Marker:        0xFF 0xD8
 In file:       0xFF 0xD8  (not stuffed - it's a real marker)
 ```
 
-```rust
+```rust,ignore
 // From src/bits.rs (BitWriterMsb)
 if self.current_byte == 0xFF {
     self.buffer.push(0x00);  // Byte stuffing
@@ -355,7 +355,7 @@ The quality parameter (1-100) scales the quantization tables:
 - **Quality 50**: Standard quantization tables
 - **Quality 1**: Very high quantization values (maximum loss)
 
-```rust
+```rust,ignore
 // From src/jpeg/quantize.rs
 let scale = if quality < 50 {
     5000 / quality as u32
@@ -373,7 +373,7 @@ let scale = if quality < 50 {
 
 ## Complete Encoding Flow
 
-```rust
+```rust,ignore
 // Encode a simple image
 let pixels = vec![255, 0, 0];  // 1x1 red pixel
 let jpeg = jpeg::encode(&pixels, 1, 1, 85)?;
@@ -399,7 +399,7 @@ Understanding JPEG's characteristic artifacts reveals how the algorithm works:
 
 ### Blocking (Grid Pattern)
 
-```
+```text
 Original smooth gradient:        After aggressive JPEG:
 ████████████████████████        ████████│███████░│░░░░░░░░
 ████████████████████████  →     ████████│███████░│░░░░░░░░
@@ -414,7 +414,7 @@ Original smooth gradient:        After aggressive JPEG:
 
 ### Mosquito Noise (Edge Halos)
 
-```
+```text
 Original sharp edge:            After JPEG:
 ████████░░░░░░░░               ████████▒░░░░░░░
 ████████░░░░░░░░  →            ████████▒░░░░░░░
@@ -429,7 +429,7 @@ Original sharp edge:            After JPEG:
 
 ### Color Bleeding
 
-```
+```text
 Original (red|blue):            After JPEG with 4:2:0:
 ████████░░░░░░░░               ████████▓▒░░░░░░
 ████████░░░░░░░░  →            ████████▓▒░░░░░░
@@ -456,7 +456,7 @@ Original (red|blue):            After JPEG with 4:2:0:
 
 JPEG's DCT-based compression creates artifacts around sharp edges. Text becomes blurry with visible halos:
 
-```
+```text
 Original text:  The quick brown fox
 After JPEG Q50: T̲h̲e̲ q̲u̲i̲c̲k̲ b̲r̲o̲w̲n̲ f̲o̲x̲  ← fuzzy edges, ringing
 ```
@@ -467,7 +467,7 @@ After JPEG Q50: T̲h̲e̲ q̲u̲i̲c̲k̲ b̲r̲o̲w̲n̲ f̲o̲x̲  ← fuzzy e
 
 Each JPEG save introduces more quantization error. Editing and re-saving repeatedly degrades quality:
 
-```
+```text
 Original    → Save Q85 → Edit → Save Q85 → Edit → Save Q85
 Quality:       Good        OK        Meh        Bad
 ```
@@ -491,7 +491,7 @@ Even at quality 100, JPEG still quantizes (with small divisors). For truly lossl
 
 Default 4:4:4 subsampling preserves color detail but increases file size. For photos (where color detail is less critical), 4:2:0 can reduce size by 25-35% with minimal visible difference.
 
-```
+```text
 4:4:4: Full color resolution (larger file)
 4:2:0: Half color resolution (smaller file, usually fine for photos)
 ```

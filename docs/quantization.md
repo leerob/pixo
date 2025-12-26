@@ -6,7 +6,7 @@ Quantization is **the step where JPEG becomes lossy**. It permanently discards i
 
 Quantization divides each DCT coefficient by a quantization value and rounds to the nearest integer:
 
-```
+```text
 Quantized[i] = round(DCT[i] / Q[i])
 ```
 
@@ -14,7 +14,7 @@ This operation is **irreversible** — the original DCT values cannot be perfect
 
 ### Simple Example
 
-```
+```text
 DCT coefficient: 47
 Quantization value: 10
 Quantized result: round(47/10) = round(4.7) = 5
@@ -43,7 +43,7 @@ JPEG quantizes high frequencies more aggressively because we won't notice!
 
 As we saw in [DCT documentation](./dct.md), most image energy concentrates in low-frequency coefficients. High-frequency coefficients are often already small, so aggressive quantization forces them to **zero**.
 
-```
+```text
 Before quantization:     After quantization:
    47   23   11    5       5    2    1    0
    31   15    7    3       3    1    1    0
@@ -61,7 +61,7 @@ JPEG defines standard quantization tables derived from human visual research:
 
 Used for the Y (brightness) channel — humans are very sensitive to brightness variations:
 
-```rust
+```rust,ignore
 // From src/jpeg/quantize.rs
 const STD_LUMINANCE_TABLE: [u8; 64] = [
     16, 11, 10, 16, 24, 40, 51, 61,
@@ -77,7 +77,7 @@ const STD_LUMINANCE_TABLE: [u8; 64] = [
 
 Visualized:
 
-```
+```text
 Position in 8×8 block → quantization value
 
          Low freq ─────────────────▶ High freq
@@ -100,7 +100,7 @@ Large values (bottom-right) → aggressive rounding → zeros
 
 Used for Cb and Cr (color) channels — humans are less sensitive to color detail:
 
-```rust
+```rust,ignore
 const STD_CHROMINANCE_TABLE: [u8; 64] = [
     17, 18, 24, 47, 99, 99, 99, 99,
     18, 21, 26, 66, 99, 99, 99, 99,
@@ -119,7 +119,7 @@ Notice: Large portions are just "99" — we aggressively discard high-frequency 
 
 The "quality" parameter (1-100) scales these tables:
 
-```rust
+```rust,ignore
 // From src/jpeg/quantize.rs
 let scale = if quality < 50 {
     5000 / quality as u32
@@ -144,7 +144,7 @@ let scaled_value = ((std_table[i] as u32 * scale + 50) / 100)
 
 ### Visual Impact
 
-```
+```text
 Quality 95:               Quality 50:              Quality 10:
 ┌────────────────────┐   ┌────────────────────┐   ┌────────────────────┐
 │ Subtle differences │   │ Some artifacts     │   │ Severe blocking    │
@@ -156,7 +156,7 @@ Quality 95:               Quality 50:              Quality 10:
 
 ## The Quantization Process
 
-```rust
+```rust,ignore
 // From src/jpeg/quantize.rs
 pub fn quantize_block(dct: &[f32; 64], quant_table: &[f32; 64]) -> [i16; 64] {
     let mut result = [0i16; 64];
@@ -171,7 +171,7 @@ pub fn quantize_block(dct: &[f32; 64], quant_table: &[f32; 64]) -> [i16; 64] {
 
 DCT block (after transformation):
 
-```
+```text
   235.7   12.3   -8.5    2.1
   -18.4    7.2   -3.1    0.8
    11.6   -4.8    1.9   -0.3
@@ -180,7 +180,7 @@ DCT block (after transformation):
 
 Quantization table (Q50):
 
-```
+```text
    16     11     10     16
    12     12     14     19
    14     13     16     24
@@ -189,7 +189,7 @@ Quantization table (Q50):
 
 Quantized result:
 
-```
+```text
 round(235.7/16) = 15    round(12.3/11) = 1    round(-8.5/10) = -1   round(2.1/16) = 0
 round(-18.4/12) = -2    round(7.2/12) = 1     round(-3.1/14) = 0    round(0.8/19) = 0
 round(11.6/14) = 1      round(-4.8/13) = 0    round(1.9/16) = 0     round(-0.3/24) = 0
@@ -214,7 +214,7 @@ After quantization, many coefficients become zero:
 
 **Typical quantized block (Q75)**:
 
-```
+```text
 DC  AC  AC  AC  AC  AC  AC  AC
 ┌────┬────┬────┬────┬────┬────┬────┬────┐
 │ 42 │ -3 │  2 │ -1 │  0 │  0 │  0 │  0 │
@@ -241,7 +241,7 @@ DC  AC  AC  AC  AC  AC  AC  AC
 
 After quantization, coefficients are read in zigzag order:
 
-```rust
+```rust,ignore
 // From src/jpeg/quantize.rs
 pub const ZIGZAG: [usize; 64] = [
      0,  1,  8, 16,  9,  2,  3, 10,
@@ -261,13 +261,13 @@ This groups low frequencies first (non-zero values) and high frequencies last (z
 
 During JPEG decoding, we multiply back:
 
-```
+```text
 Reconstructed[i] = Quantized[i] × Q[i]
 ```
 
 **The error is permanent:**
 
-```
+```text
 Original DCT: 47
 Quantized: 5 (after dividing by 10 and rounding)
 Reconstructed: 50 (after multiplying by 10)
@@ -293,7 +293,7 @@ This is what makes JPEG lossy.
 
 When quality is too low, the 8×8 block boundaries become visible because adjacent blocks are quantized independently.
 
-```
+```text
 Original smooth gradient:
 ████████████████████████████████████████
 
@@ -306,7 +306,7 @@ After aggressive quantization:
 
 Halos around sharp edges occur because removing high frequencies affects the entire block, not just the edge:
 
-```
+```text
 Original:                    After quantization:
 ████░░░░                    ████▒░░░
 ████░░░░                    ████▒░░░
@@ -320,7 +320,7 @@ Original:                    After quantization:
 
 Aggressive chrominance quantization causes color to blur across edges:
 
-```
+```text
 Original (red | blue):      After quantization:
 ████░░░░                    ███▓▒░░░
 ████░░░░                    ███▓▒░░░

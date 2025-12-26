@@ -7,6 +7,10 @@
 //! - Integer and floating-point DCT
 //! - Optimized Huffman tables
 //! - Trellis quantization for better R-D optimization
+//!
+//! For a conceptual overview and tuning guidance, see
+//! [`crate::guides::jpeg_encoding`], [`crate::guides::dct`],
+//! and [`crate::guides::quantization`].
 
 pub mod dct;
 pub mod huffman;

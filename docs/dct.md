@@ -6,7 +6,7 @@ The Discrete Cosine Transform is the mathematical heart of JPEG compression. It 
 
 Natural images are dominated by **smooth variations** (gradual changes in brightness and color) rather than **rapid oscillations** (checkerboard patterns). The DCT separates these:
 
-```
+```text
 Smooth gradient (low frequency):     Checkerboard (high frequency):
 ████████████████████████████        █ █ █ █ █ █ █ █
 ███████████████████████████░        █ █ █ █ █ █ █ █
@@ -37,9 +37,9 @@ Before tackling 2D images, let's understand the 1D case. Given N samples, the DC
 
 ### The Formula
 
-For N samples x[0] to x[N-1], the DCT coefficient X[k] is:
+For N samples x\[0\] to x\[N-1\], the DCT coefficient X\[k\] is:
 
-```
+```text
 X[k] = α(k) × Σ(n=0 to N-1) x[n] × cos(π(2n+1)k / 2N)
 
 where:
@@ -57,7 +57,7 @@ This is roughly a smooth curve peaking in the middle. Let's compute the first fe
 
 **DC coefficient (k=0)**: The average, scaled.
 
-```
+```text
 X[0] = (1/√8) × Σ x[n] × cos(0)
      = (1/√8) × (100+110+120+130+140+130+120+110) × 1
      = (1/2.83) × 960 = 339.4
@@ -65,7 +65,7 @@ X[0] = (1/√8) × Σ x[n] × cos(0)
 
 **First AC coefficient (k=1)**: Measures one half-cycle oscillation.
 
-```
+```text
 X[1] = √(2/8) × Σ x[n] × cos(π(2n+1)/16)
      ≈ small value (the data doesn't oscillate once)
 ```
@@ -76,7 +76,7 @@ X[1] = √(2/8) × Σ x[n] × cos(π(2n+1)/16)
 
 Each DCT coefficient corresponds to a **basis function** — a specific cosine wave:
 
-```
+```text
 k=0:  ████████████████  (constant - DC)
 k=1:  ██████░░░░░░░░░░  (half cycle)
 k=2:  ████░░░░████░░░░  (full cycle)
@@ -100,7 +100,7 @@ A key property: the 2D DCT can be computed as two 1D DCTs:
 
 This reduces computation from O(N⁴) to O(N³).
 
-```rust
+```rust,ignore
 // From src/jpeg/dct.rs
 pub fn dct_2d(block: &[f32; 64]) -> [f32; 64] {
     let mut temp = [0.0f32; 64];
@@ -139,7 +139,7 @@ pub fn dct_2d(block: &[f32; 64]) -> [f32; 64] {
 
 The 64 basis functions for an 8×8 block form a complete set of patterns:
 
-```
+```text
 Basis functions (simplified visualization):
 
 (0,0) DC      (0,1) Horiz   (0,2) Horiz   ...  (0,7) Horiz
@@ -163,7 +163,7 @@ The coefficient at position (u,v) tells us how much of that basis pattern is in 
 
 The magic of DCT: for typical images, **most energy concentrates in the top-left corner** (low frequencies):
 
-```
+```text
 DCT of a typical photo block:
 
      Low freq ───────────────────▶ High freq
@@ -187,7 +187,7 @@ This is why JPEG works: we can store mainly the top-left values and discard the 
 
 Computing cosines repeatedly is expensive. We precompute them:
 
-```rust
+```rust,ignore
 // From src/jpeg/dct.rs
 const COS_TABLE: [[f32; 8]; 8] = precompute_cos_table();
 
@@ -212,7 +212,7 @@ The table entry `COS_TABLE[n][k]` = cos((2n+1)kπ/16), which appears in the DCT 
 
 ## The 1D DCT Implementation
 
-```rust
+```rust,ignore
 // From src/jpeg/dct.rs
 fn dct_1d(input: &[f32], output: &mut [f32]) {
     for k in 0..8 {
@@ -227,7 +227,7 @@ fn dct_1d(input: &[f32], output: &mut [f32]) {
 
 Where ALPHA provides the normalization:
 
-```rust
+```rust,ignore
 const ALPHA: [f32; 8] = [
     0.7071067811865476,  // 1/√2 for k=0
     1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  // 1 for k>0
@@ -238,7 +238,7 @@ const ALPHA: [f32; 8] = [
 
 Decoding requires the **inverse DCT (IDCT)**. Fortunately, DCT is nearly self-inverse:
 
-```rust
+```rust,ignore
 // From src/jpeg/dct.rs
 fn idct_1d(input: &[f32], output: &mut [f32]) {
     for n in 0..8 {
@@ -257,7 +257,7 @@ The IDCT reconstructs spatial values from frequency coefficients.
 
 Before DCT, JPEG subtracts 128 from pixel values (converting 0-255 to -128 to 127). This centers the data around zero, which produces a smaller DC coefficient and better numerical behavior.
 
-```rust
+```rust,ignore
 // From src/jpeg/mod.rs
 fn extract_block(...) {
     // ...
@@ -305,7 +305,7 @@ Consider what happens to different image patterns:
 
 **Solid block** (all pixels = 100):
 
-```
+```text
 Input: All 100s
 DCT: Only DC is non-zero (≈283)
      All AC = 0
@@ -313,7 +313,7 @@ DCT: Only DC is non-zero (≈283)
 
 **Vertical edge**:
 
-```
+```text
 Input: Left half = 0, Right half = 200
 DCT: Large DC (average ≈ 100)
      Large horizontal AC components
@@ -322,7 +322,7 @@ DCT: Large DC (average ≈ 100)
 
 **Checkerboard**:
 
-```
+```text
 Input: Alternating 0 and 255
 DCT: DC = 127 (average)
      Position (7,7) is very large
@@ -333,7 +333,7 @@ DCT: DC = 127 (average)
 
 The DC coefficient at position (0,0) represents the **average brightness** of the block:
 
-```
+```text
 DC = (1/8) × Σ all pixels
 
 For a block with pixels averaging 100:

@@ -1,4 +1,7 @@
 //! Color type definitions and conversions.
+//!
+//! See the crate-level quickstart and [`crate::guides::png_encoding`] /
+//! [`crate::guides::jpeg_encoding`] for how these map to each format.
 
 /// Supported color types for image encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

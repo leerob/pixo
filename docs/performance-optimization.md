@@ -6,7 +6,7 @@ This document explains the performance optimization techniques used in pixo. The
 
 Before diving into techniques, it's worth understanding the hierarchy of optimization impact:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │  1. Algorithm Choice           (10x-1000x improvement possible) │
 ├─────────────────────────────────────────────────────────────────┤
@@ -28,7 +28,7 @@ The fastest code is code that doesn't run. Every optimization ultimately reduces
 
 The Adler-32 checksum algorithm requires a modulo operation (`% 65521`) to prevent overflow. The naive approach applies it after every byte:
 
-```
+```text
 // Slow: modulo per byte
 for byte in data {
     s1 = (s1 + byte) % 65521;
@@ -38,7 +38,7 @@ for byte in data {
 
 But modulo is expensive! Our optimization: do the math to find how many bytes we can process before overflow, then only apply modulo at chunk boundaries:
 
-```rust
+```rust,ignore
 // From src/compress/adler32.rs
 const NMAX: usize = 5552;  // Max bytes before overflow
 
@@ -59,7 +59,7 @@ for chunk in data.chunks(NMAX) {
 
 When selecting the best PNG filter, we try all 5 filters and pick the one with the lowest "score" (sum of absolute values). But if we find a perfect score of 0, we can stop immediately:
 
-```rust
+```rust,ignore
 // From src/png/filter.rs
 let score = score_filter(&scratch.sub);
 if score < best_score {
@@ -73,7 +73,7 @@ if score < best_score {
 
 Similarly, for LZ77 matching, if we find a "good enough" match, we skip expensive lazy matching:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 const GOOD_MATCH_LENGTH: usize = 32;
 
@@ -91,7 +91,7 @@ Computation takes time. Memory lookups are often faster. When you repeatedly com
 
 DEFLATE needs to convert match lengths (3-258) to symbol codes. The naive approach searches through a table:
 
-```
+```text
 // Slow: linear search
 fn length_code(length: u16) -> u16 {
     for (i, &base) in LENGTH_BASE.iter().enumerate() {
@@ -104,7 +104,7 @@ fn length_code(length: u16) -> u16 {
 
 Our optimization: precompute a direct lookup table at compile time:
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 const LENGTH_LOOKUP: [(u8, u8); 256] = {
     let mut table = [(0u8, 0u8); 256];
@@ -126,7 +126,7 @@ fn length_code(length: u16) -> (u16, u8, u16) {
 
 DEFLATE requires reversing the bit order of Huffman codes. Computing this involves a loop:
 
-```
+```text
 // Slow: bit-by-bit reversal
 fn reverse_bits_slow(code: u16, length: u8) -> u32 {
     let mut result = 0;
@@ -140,7 +140,7 @@ fn reverse_bits_slow(code: u16, length: u8) -> u32 {
 
 Our optimization: precompute all 256 byte reversals, then combine them:
 
-```rust
+```rust,ignore
 // From src/compress/deflate.rs
 const REVERSE_BYTE: [u8; 256] = { /* computed at compile time */ };
 
@@ -163,7 +163,7 @@ Integer operations are generally faster and more predictable than floating-point
 
 RGB to YCbCr conversion uses these floating-point formulas:
 
-```
+```text
 Y  = 0.299×R + 0.587×G + 0.114×B
 Cb = -0.169×R - 0.331×G + 0.5×B + 128
 Cr = 0.5×R - 0.419×G - 0.081×B + 128
@@ -171,7 +171,7 @@ Cr = 0.5×R - 0.419×G - 0.081×B + 128
 
 The naive approach uses `f32` with `round()` and `clamp()`. Our optimization: scale coefficients by 256 and use integer math with bit shifts:
 
-```rust
+```rust,ignore
 // From src/color.rs
 #[inline]
 pub fn rgb_to_ycbcr(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
@@ -197,7 +197,7 @@ Using smaller data types can improve performance through better cache utilizatio
 
 ### Memory Hierarchy Matters
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │  L1 Cache:   ~1 ns access,   64 KB                          │
 ├─────────────────────────────────────────────────────────────┤
@@ -215,7 +215,7 @@ If your data fits in a smaller cache level, everything runs faster. Using `u8` i
 
 In LZ77, we store positions as `i32` (4 bytes) instead of `usize` (8 bytes on 64-bit):
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 pub struct Lz77Compressor {
     head: Vec<i32>,  // 4 bytes, not 8
@@ -234,7 +234,7 @@ Processing items one at a time has overhead. Processing them in batches amortize
 
 When finding LZ77 match lengths, the naive approach compares byte by byte:
 
-```
+```text
 // Slow: byte-by-byte
 while length < max && data[pos1 + length] == data[pos2 + length] {
     length += 1;
@@ -243,7 +243,7 @@ while length < max && data[pos1 + length] == data[pos2 + length] {
 
 Our optimization: compare 8 bytes at a time using `u64`:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 // Compare 8 bytes at a time using u64
 while length + 8 <= max_len {
@@ -265,7 +265,7 @@ while length + 8 <= max_len {
 
 The JPEG bit writer was originally implemented as a bit-by-bit loop. Our optimization processes multiple bits per iteration:
 
-```rust
+```rust,ignore
 // From src/bits.rs (BitWriterMsb)
 while remaining > 0 {
     let space = self.bit_position;
@@ -287,7 +287,7 @@ while remaining > 0 {
 
 SIMD instructions process multiple values simultaneously. A 128-bit register can hold 16 bytes, and one instruction operates on all 16.
 
-```
+```text
 ┌────────────────────────────────────────────────────────┐
 │                   Scalar Addition                       │
 │                                                         │
@@ -323,7 +323,7 @@ SIMD instructions process multiple values simultaneously. A 128-bit register can
 
 The standard Adler-32 loop processes one byte at a time. With SSSE3, we process 16 bytes at once:
 
-```rust
+```rust,ignore
 // From src/simd/x86_64.rs (simplified)
 pub unsafe fn adler32_ssse3(data: &[u8]) -> u32 {
     // Process 16 bytes at a time
@@ -338,7 +338,7 @@ pub unsafe fn adler32_ssse3(data: &[u8]) -> u32 {
 
 Calculating the sum of absolute values for filter selection:
 
-```rust
+```rust,ignore
 // From src/simd/x86_64.rs
 pub unsafe fn score_filter_sse2(filtered: &[u8]) -> u64 {
     let mut sum = _mm_setzero_si128();
@@ -364,7 +364,7 @@ pub unsafe fn score_filter_sse2(filtered: &[u8]) -> u64 {
 
 Different CPUs support different SIMD instruction sets. We detect at runtime:
 
-```rust
+```rust,ignore
 // From src/simd/mod.rs
 pub fn adler32(data: &[u8]) -> u32 {
     #[cfg(target_arch = "x86_64")]
@@ -389,7 +389,7 @@ When you compute the same thing repeatedly, cache the result.
 
 DEFLATE's fixed Huffman codes are the same for every compression. Instead of regenerating them each time:
 
-```rust
+```rust,ignore
 // From src/compress/huffman.rs
 use std::sync::LazyLock;
 
@@ -412,7 +412,7 @@ pub fn fixed_literal_codes() -> &'static [HuffmanCode] {
 
 When processing PNG rows, we need temporary buffers for each filter type. Instead of allocating new buffers per row:
 
-```rust
+```rust,ignore
 // From src/png/filter.rs
 struct AdaptiveScratch {
     none: Vec<u8>,
@@ -440,7 +440,7 @@ Sometimes the best optimization isn't in the algorithm—it's in reshaping the d
 
 ### The Pattern
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │  Input Data          Transform           Optimized Data         │
 │  ──────────    →    ───────────    →    ──────────────          │
@@ -455,7 +455,7 @@ Sometimes the best optimization isn't in the algorithm—it's in reshaping the d
 
 PNG palette images assign an index (0-255) to each pixel. The naive approach assigns indices in first-occurrence order. But compression works better when similar values are adjacent.
 
-```
+```text
 Before: Pixel sequence uses scattered indices
 ┌─────────────────────────────────────────┐
 │  3  7  3  12  7  3  45  12  7  3  ...  │  Indices jump around
@@ -475,7 +475,7 @@ The Zeng algorithm builds a **co-occurrence matrix** counting which colors appea
 
 Instead of encoding each 8×8 block completely before moving to the next, progressive JPEG groups coefficients by frequency:
 
-```
+```text
 Sequential: Block₁[all 64 coeffs] → Block₂[all 64] → Block₃[all 64] → ...
 
 Progressive: All DC coeffs → All low AC → All high AC
@@ -504,7 +504,7 @@ When facing a combinatorial decision problem, don't enumerate all possibilities.
 
 Many optimization problems seem to require trying every combination:
 
-```
+```text
 Quantization example:
 ─────────────────────
 64 coefficients, each could round up or down
@@ -523,7 +523,7 @@ Instead of brute force, observe that:
 2. **Future costs don't depend on how you got here** — only on your current state
 3. **You can compute optimal paths efficiently** — using DP or shortest-path algorithms
 
-```
+```text
 Trellis Quantization Graph
 ══════════════════════════
 
@@ -546,7 +546,7 @@ Solution  = shortest path from start to end
 
 Greedy LZ77 takes the longest match at each position. But sometimes a shorter match enables a better match later:
 
-```
+```text
 Data: "ABCABCABCD"
 
 Greedy:     ABC (match 3) + ABCD (match 4) = suboptimal
@@ -560,7 +560,7 @@ The optimal approach:
 2. Edge costs = actual bit cost (from Huffman statistics)
 3. Find shortest path with forward DP
 
-```rust
+```rust,ignore
 // Forward DP: cost[i] = minimum bits to encode bytes 0..i
 for i in 0..n {
     // Try literal
@@ -602,7 +602,7 @@ Sometimes you need information about the whole input to make optimal decisions. 
 
 ### The Trade-off
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Single-Pass vs Multi-Pass                     │
 │                                                                  │
@@ -618,7 +618,7 @@ Sometimes you need information about the whole input to make optimal decisions. 
 
 DEFLATE can use fixed Huffman codes (single-pass) or build optimal codes for the specific data (two-pass):
 
-```
+```text
 Pass 1: Count symbol frequencies
         literals: {0: 5, 1: 12, 2: 8, ...}
         distances: {1: 20, 2: 15, ...}
@@ -633,7 +633,7 @@ Pass 2: Build optimal Huffman tree from frequencies
 
 Some problems have circular dependencies—you need to solve A to solve B, but B affects A:
 
-```
+```text
 LZ77 + Huffman Chicken-and-Egg:
 ──────────────────────────────
 Best LZ77 parse depends on Huffman bit costs
@@ -643,7 +643,7 @@ Which do you compute first?
 
 The solution: iterate until convergence.
 
-```
+```text
 Iteration 1: Greedy LZ77 → rough frequencies → initial Huffman costs
 Iteration 2: Optimal LZ77 with costs → better frequencies → refined costs
 Iteration 3: Optimal LZ77 with refined costs → even better frequencies
@@ -670,7 +670,7 @@ Sometimes the biggest wins come from choosing a better algorithm entirely.
 
 The naive 1D 8-point DCT needs 64 multiplications; a fully naive 2D 8×8 would take 4096. Separability drops this to 2×8³ = 1024 multiplications, but that's still costly:
 
-```
+```text
 // Naive 1D DCT
 for k in 0..8 {
     for n in 0..8 {
@@ -685,7 +685,7 @@ That's O(n²) — 64 multiplications for 8 points.
 
 The Arai-Agui-Nakajima (AAN) algorithm reduces this to just **5 multiplications and 29 additions**:
 
-```rust
+```rust,ignore
 // From src/jpeg/dct.rs
 fn aan_dct_1d(data: &mut [f32; 8]) {
     // Stage 1: Butterfly operations (additions only)
@@ -715,7 +715,7 @@ Modern CPUs have multiple cores. Use them!
 
 Each row of a PNG can be filtered independently (with access to the previous row for context). We parallelize with rayon:
 
-```rust
+```rust,ignore
 // From src/png/filter.rs
 #[cfg(feature = "parallel")]
 fn apply_filters_parallel(data: &[u8], height: usize, ...) -> Vec<u8> {
@@ -743,14 +743,14 @@ Understanding binary representation is fundamental to compression optimization.
 
 Bit shifts are much faster than division/multiplication by powers of 2:
 
-```
+```text
 x >> n  is equivalent to  x / (2^n)   but faster
 x << n  is equivalent to  x * (2^n)   but faster
 ```
 
 We use this extensively for fixed-point arithmetic:
 
-```rust
+```rust,ignore
 // Division by 256 using bit shift
 let y = (77 * r + 150 * g + 29 * b + 128) >> 8;
 ```
@@ -759,13 +759,13 @@ let y = (77 * r + 150 * g + 29 * b + 128) >> 8;
 
 For powers of 2, bitwise AND is faster than modulo:
 
-```
+```text
 x & (n-1)  is equivalent to  x % n  when n is a power of 2
 ```
 
 We use this for hash table indexing:
 
-```rust
+```rust,ignore
 // From src/compress/lz77.rs
 const HASH_SIZE: usize = 1 << 15;  // 32768 (power of 2)
 
@@ -779,14 +779,14 @@ fn hash3(data: &[u8], pos: usize) -> usize {
 
 XOR highlights differences between values:
 
-```
+```text
 a ^ b = 0  means a == b
 a ^ b ≠ 0  means a ≠ b, and the set bits show where they differ
 ```
 
 We use this for fast string matching:
 
-```rust
+```rust,ignore
 // Find first differing byte in 8-byte comparison
 let xor = a ^ b;
 if xor != 0 {
@@ -866,7 +866,7 @@ Continue to [Compression Evolution](./compression-evolution.md) to explore the h
 
 ## References
 
-- Agner Fog's optimization manuals: https://www.agner.org/optimize/
-- Intel Intrinsics Guide: https://www.intel.com/content/www/us/en/docs/intrinsics-guide/
+- Agner Fog's optimization manuals: <https://www.agner.org/optimize/>
+- Intel Intrinsics Guide: <https://www.intel.com/content/www/us/en/docs/intrinsics-guide/>
 - Arai, Agui, Nakajima (1988). "A Fast DCT-SQ Scheme for Images"
 - "What Every Programmer Should Know About Memory" by Ulrich Drepper

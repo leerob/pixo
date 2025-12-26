@@ -44,7 +44,7 @@ There's a critical constraint: the codes must be **prefix-free** (no code is a p
 
 Why? Consider what happens without this property:
 
-```
+```text
 Suppose: A = 0, B = 01, C = 1
 
 Encoded message: 0 01 1 → 0011
@@ -65,7 +65,7 @@ Prefix-free codes can be visualized as a binary tree:
 - Each **path** from root to leaf defines the code (left=0, right=1)
 - No symbol can be an ancestor of another (hence prefix-free)
 
-```
+```text
         (root)
         /    \
        0      1
@@ -106,7 +106,7 @@ Building the optimal tree is surprisingly simple:
 
 Starting symbols: A(50), B(25), C(15), D(10)
 
-```
+```text
 Step 1: Initial queue
   [D:10] [C:15] [B:25] [A:50]
 
@@ -164,7 +164,7 @@ Canonical codes follow two rules:
 
 Given just the code lengths, we can regenerate the codes:
 
-```
+```text
 Lengths: A=1, B=2, C=3, D=3
 
 Step 1: Count codes of each length
@@ -186,7 +186,7 @@ Step 3: Assign codes in order
 
 This is exactly what our implementation does in `generate_canonical_codes`:
 
-```rust
+```rust,ignore
 // From src/compress/huffman.rs
 pub fn generate_canonical_codes(lengths: &[u8]) -> Vec<HuffmanCode> {
     // Count codes of each length
@@ -230,7 +230,7 @@ Huffman coding is **optimal** for symbol-by-symbol encoding. This means no other
 2. **Huffman constructs exactly this**: By always combining the two lowest-frequency nodes, Huffman guarantees the sibling property at every level.
 
 3. **Mathematical bound**: The expected code length L satisfies:
-   ```
+   ```text
    H(X) ≤ L < H(X) + 1
    ```
    Where H(X) is the entropy (theoretical minimum).
@@ -239,7 +239,7 @@ Huffman coding is **optimal** for symbol-by-symbol encoding. This means no other
 
 For efficiency, DEFLATE (used in PNG) defines pre-computed "fixed" Huffman codes that don't require transmitting the tree:
 
-```
+```text
 Literal/Length codes (0-287):
   0-143:   8-bit codes (00110000 to 10111111)
   144-255: 9-bit codes (110010000 to 111111111)
@@ -252,7 +252,7 @@ Distance codes (0-29):
 
 Our implementation of fixed codes:
 
-```rust
+```rust,ignore
 // From src/compress/huffman.rs
 pub fn fixed_literal_codes() -> Vec<HuffmanCode> {
     let mut lengths = vec![0u8; 288];
@@ -294,7 +294,7 @@ Sometimes the natural Huffman tree produces codes that are too long. DEFLATE lim
 
 The **Kraft inequality** tells us this is always possible:
 
-```
+```text
 For a valid prefix-free code: Σ 2^(-lᵢ) ≤ 1
 ```
 
@@ -302,7 +302,7 @@ If the sum equals exactly 1, the code is "complete" (no wasted code space).
 
 Our implementation handles length limiting:
 
-```rust
+```rust,ignore
 // From src/compress/huffman.rs - simplified
 fn limit_code_lengths(lengths: &mut [u8], max_length: usize) {
     let max_length = max_length as u8;
@@ -328,7 +328,7 @@ An important implementation detail: DEFLATE and JPEG use different bit ordering!
 
 Our library handles both:
 
-```rust
+```rust,ignore
 // For DEFLATE (PNG)
 pub struct BitWriter { /* LSB first */ }
 

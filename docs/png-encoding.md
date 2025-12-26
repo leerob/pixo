@@ -2,7 +2,7 @@
 
 Consider a screenshot of a text editor. Most pixels are the same background color. Adjacent pixels in the text are nearly identical shades. Yet if you stored every pixel as raw RGB values, a 1920×1080 screenshot would be:
 
-```
+```text
 1920 × 1080 × 3 = 6,220,800 bytes ≈ 6 MB
 ```
 
@@ -14,7 +14,7 @@ PNG uses **predictive filtering** before compression. Instead of storing raw pix
 
 Why does this help? Consider these two sequences:
 
-```
+```text
 Raw values:      128, 130, 132, 134, 136, 138, 140, 142
 Differences:       0,   2,   2,   2,   2,   2,   2,   2
                    ↑
@@ -25,7 +25,7 @@ The raw values are all different (8 unique values). The differences are mostly t
 
 ## The PNG Pipeline
 
-```
+```text
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │ Raw Pixels  │───▶│  Filtering  │───▶│   DEFLATE   │───▶│  PNG Chunks │
 │  (RGB/RGBA) │    │ (predict &  │    │  (LZ77 +    │    │  (file      │
@@ -41,7 +41,7 @@ The filtering step is what makes PNG so effective. Let's understand each filter 
 
 PNG defines five filter types, each predicting the current pixel from its neighbors:
 
-```
+```text
 Neighbor positions for pixel X:
 
     C | B
@@ -57,7 +57,7 @@ C = Upper-left pixel (diagonal)
 
 No prediction. Just use the raw value.
 
-```
+```text
 Prediction: 0
 Output: X - 0 = X (unchanged)
 ```
@@ -68,7 +68,7 @@ Output: X - 0 = X (unchanged)
 
 Predict from the **left** pixel.
 
-```
+```text
 Prediction: A (left pixel)
 Output: X - A
 ```
@@ -79,7 +79,7 @@ Output: X - A
 
 Predict from the **above** pixel.
 
-```
+```text
 Prediction: B (above pixel)
 Output: X - B
 ```
@@ -90,7 +90,7 @@ Output: X - B
 
 Predict from the **average** of left and above.
 
-```
+```text
 Prediction: floor((A + B) / 2)
 Output: X - floor((A + B) / 2)
 ```
@@ -101,7 +101,7 @@ Output: X - floor((A + B) / 2)
 
 The cleverest filter! Named after Alan Paeth, it predicts using the neighbor **closest to a linear interpolation**.
 
-```
+```text
 p = A + B - C   (linear combination)
 
 Choose whichever of A, B, C is closest to p:
@@ -120,21 +120,21 @@ Prediction = A if pa ≤ pb and pa ≤ pc
 
 Let's filter a simple 8-pixel grayscale row. Assume the previous row was all zeros (or this is the first row).
 
-```
+```text
 Raw pixel values:  100, 102, 104, 106, 108, 110, 112, 114
 Previous row:        0,   0,   0,   0,   0,   0,   0,   0
 ```
 
 ### With Filter 0 (None):
 
-```
+```text
 Output: 100, 102, 104, 106, 108, 110, 112, 114  (unchanged)
 Sum of absolute values: 860
 ```
 
 ### With Filter 1 (Sub):
 
-```
+```text
 Position 0: 100 - 0   = 100  (no left pixel, use 0)
 Position 1: 102 - 100 = 2
 Position 2: 104 - 102 = 2
@@ -150,7 +150,7 @@ Sum of absolute values: 114  ← Much better!
 
 ### With Filter 2 (Up):
 
-```
+```text
 Position 0: 100 - 0 = 100
 Position 1: 102 - 0 = 102
 ...all positions subtract 0 from previous row...
@@ -181,7 +181,7 @@ Different rows benefit from different filters. A horizontal stripe needs Sub; a 
 
 **Adaptive filtering** tries multiple filters and picks the best one for each row independently:
 
-```
+```text
 Row 1: Horizontal gradient → Sub wins   → encode with filter 1
 Row 2: Vertical continuation → Up wins  → encode with filter 2
 Row 3: Noisy texture → None wins        → encode with filter 0
@@ -194,7 +194,7 @@ Each row starts with a **filter type byte** (0-4), followed by the filtered data
 
 How do we know which filter "wins"? The most common heuristic is **sum of absolute values**:
 
-```rust
+```rust,ignore
 fn score(filtered: &[u8]) -> u64 {
     filtered.iter()
         .map(|&b| (b as i8).unsigned_abs() as u64)
@@ -238,7 +238,7 @@ We bundle filter strategy, compression level, and optimizations into convenient 
 
 ### Fast (Preset 0)
 
-```rust
+```rust,ignore
 PngOptions::fast()
 ```
 
@@ -248,7 +248,7 @@ PngOptions::fast()
 
 ### Balanced (Preset 1)
 
-```rust
+```rust,ignore
 PngOptions::balanced()
 ```
 
@@ -259,7 +259,7 @@ PngOptions::balanced()
 
 ### Max (Preset 2)
 
-```rust
+```rust,ignore
 PngOptions::max()
 ```
 
@@ -276,7 +276,7 @@ Beyond filtering, PNG encoders can apply lossless transformations. (When lossy o
 
 Images with ≤256 unique colors become **indexed color** with a PLTE chunk:
 
-```
+```text
 Before: 24 bits/pixel (RGB)
 After:  8 bits/pixel (index) + palette overhead
 
@@ -285,7 +285,7 @@ Savings: up to 67% for simple graphics!
 
 ### Color Type Reduction
 
-```
+```text
 RGBA with all pixels opaque → RGB     (saves 25%)
 RGB where R=G=B always     → Gray    (saves 67%)
 RGBA where R=G=B + alpha   → GrayA   (saves 50%)
@@ -295,7 +295,7 @@ RGBA where R=G=B + alpha   → GrayA   (saves 50%)
 
 For fully transparent pixels (alpha=0), the RGB values are invisible. Setting them to a constant (e.g., 0,0,0) creates more repetition:
 
-```
+```text
 Before: rgba(147, 82, 203, 0), rgba(91, 44, 187, 0)  ← random invisible colors
 After:  rgba(0, 0, 0, 0), rgba(0, 0, 0, 0)           ← identical, compresses well
 ```
@@ -304,7 +304,7 @@ After:  rgba(0, 0, 0, 0), rgba(0, 0, 0, 0)           ← identical, compresses w
 
 A PNG file is a sequence of **chunks**:
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────┐
 │ PNG Signature (8 bytes): 89 50 4E 47 0D 0A 1A 0A                 │
 ├──────────────────────────────────────────────────────────────────┤
@@ -321,7 +321,7 @@ A PNG file is a sequence of **chunks**:
 
 Each chunk structure:
 
-```
+```text
 ┌─────────┬─────────┬─────────────────┬─────────┐
 │ Length  │  Type   │      Data       │  CRC-32 │
 │ 4 bytes │ 4 bytes │ (Length bytes)  │ 4 bytes │
@@ -332,7 +332,7 @@ Each chunk structure:
 
 The Paeth predictor deserves special attention because it's non-obvious but effective:
 
-```
+```text
 Given: A=left, B=above, C=upper-left
 
 Step 1: Compute the "ideal" prediction as if the pixel were on a plane:
@@ -350,7 +350,7 @@ Step 3: Return the closest one (with tie-breaking: A > B > C priority)
 
 Consider a smooth gradient going diagonally:
 
-```
+```text
 C=100 | B=110
 ------+------
 A=110 | X=120
@@ -366,7 +366,7 @@ The Paeth predictor essentially fits a plane through the three neighbors and ext
 
 PNG is **lossless**, which means it preserves every pixel perfectly — including noise. Photographs have natural noise that PNG cannot compress efficiently.
 
-```
+```text
 Photo as JPEG (Q85): 150 KB
 Photo as PNG:        2.5 MB  ← 16x larger!
 ```
@@ -395,7 +395,7 @@ RGBA images with no transparency waste 25% of bytes. Our balanced preset auto-de
 
 Icons, logos, and diagrams often have <256 colors. Palette mode dramatically reduces size:
 
-```
+```text
 Simple icon as RGBA: 12 KB
 Same icon as indexed: 2 KB  ← 6x smaller!
 ```

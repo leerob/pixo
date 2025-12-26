@@ -1,6 +1,9 @@
 //! PNG encoder implementation.
 //!
 //! Implements PNG encoding according to the PNG specification (RFC 2083).
+//!
+//! For a full pipeline walkthrough and tuning tips, see
+//! [`crate::guides::png_encoding`] and [`crate::guides::performance_optimization`].
 
 mod bit_depth;
 pub mod chunk;
