@@ -10,6 +10,13 @@ homepage = "https://pixo.leerob.com"
 documentation = "https://docs.rs/pixo"
 keywords = ["image", "compression", "png", "jpeg", "encoding"]
 categories = ["compression", "encoding", "multimedia::images"]
+exclude = [
+    "tests/",
+    ".cursor/",
+    ".github/",
+    "web/",
+    "Cargo.toml.orig",
+]
 
 [lib]
 name = "pixo"
