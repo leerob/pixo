@@ -158,9 +158,10 @@ impl<'a> MsbBitReader<'a> {
                 // Stuffed byte, consume the 0x00
                 self.pos += 1;
             } else if (0xD0..=0xD7).contains(&next) {
-                // Restart marker - return 0xFF and let caller handle
-                // Actually in entropy data we should skip these
-                return Ok(byte);
+                // Restart marker (RST0-RST7) - skip it entirely and continue
+                // These markers reset the DC predictor but contain no data
+                self.pos += 1;
+                return self.next_byte();
             } else {
                 // Other marker - indicates end of entropy-coded data
                 // Back up so caller can see the marker

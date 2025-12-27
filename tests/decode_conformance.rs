@@ -279,6 +279,31 @@ fn test_jpeg_encode_decode_roundtrip_gray() {
     assert_eq!(decoded.pixels.len(), w * h);
 }
 
+/// Test grayscale JPEG with non-MCU-aligned dimensions.
+/// Verifies the decoder crops to actual image size, not MCU-aligned buffer size.
+#[test]
+fn test_jpeg_grayscale_non_mcu_aligned_size() {
+    // Non-MCU-aligned grayscale image (15x9, not multiples of 8)
+    // MCU-aligned would be 16x16 = 256 pixels, but we need exactly 15x9 = 135
+    let (w, h) = (15, 9);
+    let pixels = vec![128u8; w * h];
+
+    let encoded =
+        jpeg::encode_with_color(&pixels, w as u32, h as u32, 90, ColorType::Gray).expect("encode");
+    let decoded = decode_jpeg(&encoded).expect("decode");
+
+    assert_eq!(decoded.width, w as u32);
+    assert_eq!(decoded.height, h as u32);
+    assert_eq!(decoded.color_type, ColorType::Gray);
+    assert_eq!(
+        decoded.pixels.len(),
+        w * h,
+        "Expected {} pixels, got {} (MCU-aligned would be 256)",
+        w * h,
+        decoded.pixels.len()
+    );
+}
+
 /// Test JPEG encode->decode with various sizes.
 #[test]
 fn test_jpeg_encode_decode_various_sizes() {

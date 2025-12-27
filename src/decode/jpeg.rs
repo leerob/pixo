@@ -334,6 +334,13 @@ impl<'a> JpegDecoder<'a> {
 
             let quant_table_id = segment[offset + 2];
 
+            // Validate quantization table ID (must be 0-3)
+            if quant_table_id > 3 {
+                return Err(Error::InvalidDecode(format!(
+                    "invalid quantization table ID {quant_table_id} for component {id}"
+                )));
+            }
+
             self.max_h_sampling = self.max_h_sampling.max(h_sampling);
             self.max_v_sampling = self.max_v_sampling.max(v_sampling);
 
@@ -452,10 +459,25 @@ impl<'a> JpegDecoder<'a> {
             if offset + 1 >= segment.len() {
                 return Err(Error::InvalidDecode("truncated SOS segment".into()));
             }
-            let _component_id = segment[offset];
+            let component_id = segment[offset];
             let tables = segment[offset + 1];
-            self.components[i].dc_table_id = (tables >> 4) & 0x0F;
-            self.components[i].ac_table_id = tables & 0x0F;
+            let dc_table_id = (tables >> 4) & 0x0F;
+            let ac_table_id = tables & 0x0F;
+
+            // Validate Huffman table IDs (must be 0-3)
+            if dc_table_id > 3 {
+                return Err(Error::InvalidDecode(format!(
+                    "invalid DC Huffman table ID {dc_table_id} for component {component_id}"
+                )));
+            }
+            if ac_table_id > 3 {
+                return Err(Error::InvalidDecode(format!(
+                    "invalid AC Huffman table ID {ac_table_id} for component {component_id}"
+                )));
+            }
+
+            self.components[i].dc_table_id = dc_table_id;
+            self.components[i].ac_table_id = ac_table_id;
         }
 
         Ok(())
@@ -591,11 +613,16 @@ impl<'a> JpegDecoder<'a> {
 
         // Convert to final pixel format
         if self.components.len() == 1 {
-            // Grayscale
-            let pixels = comp_data[0]
-                .iter()
-                .map(|&v| v.clamp(0, 255) as u8)
-                .collect();
+            // Grayscale - crop MCU-aligned buffer to actual dimensions
+            let comp_width = mcu_width * self.components[0].h_sampling as usize * 8;
+            let mut pixels = Vec::with_capacity(self.width as usize * self.height as usize);
+            for y in 0..self.height as usize {
+                for x in 0..self.width as usize {
+                    let idx = y * comp_width + x;
+                    let val = comp_data[0].get(idx).copied().unwrap_or(0);
+                    pixels.push(val.clamp(0, 255) as u8);
+                }
+            }
             Ok(JpegImage {
                 width: self.width,
                 height: self.height,
@@ -950,5 +977,122 @@ mod tests {
         assert_eq!(decoded.width, 8);
         assert_eq!(decoded.height, 8);
         assert_eq!(decoded.color_type, crate::ColorType::Gray);
+    }
+
+    #[test]
+    fn test_jpeg_decode_invalid_quant_table_id() {
+        // Craft a JPEG with invalid quantization table ID (>3) in SOF0
+        let mut jpeg = Vec::new();
+
+        // SOI marker
+        jpeg.extend_from_slice(&[0xFF, 0xD8]);
+
+        // SOF0 marker with quant_table_id = 5 (invalid!)
+        jpeg.extend_from_slice(&[
+            0xFF, 0xC0, // SOF0 marker
+            0x00, 0x0B, // length (11 bytes)
+            0x08, // 8-bit precision
+            0x00, 0x08, // height = 8
+            0x00, 0x08, // width = 8
+            0x01, // 1 component
+            0x01, // component ID = 1
+            0x11, // h_sampling=1, v_sampling=1
+            0x05, // quant_table_id = 5 (INVALID - max is 3!)
+        ]);
+
+        // EOI marker
+        jpeg.extend_from_slice(&[0xFF, 0xD9]);
+
+        let result = decode_jpeg(&jpeg);
+        assert!(result.is_err(), "should error on invalid quant table ID");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("quantization table ID"),
+            "error should mention quantization table ID: {err}"
+        );
+    }
+
+    #[test]
+    fn test_jpeg_decode_invalid_dc_table_id() {
+        // Craft a JPEG with invalid DC Huffman table ID (>3) in SOS
+        let mut jpeg = Vec::new();
+
+        // SOI
+        jpeg.extend_from_slice(&[0xFF, 0xD8]);
+
+        // DQT with table 0
+        jpeg.extend_from_slice(&[0xFF, 0xDB, 0x00, 0x43, 0x00]);
+        jpeg.extend_from_slice(&[16u8; 64]);
+
+        // SOF0 with valid quant_table_id = 0
+        jpeg.extend_from_slice(&[
+            0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+        ]);
+
+        // DHT with table 0 (DC)
+        jpeg.extend_from_slice(&[0xFF, 0xC4, 0x00, 0x14, 0x00]);
+        jpeg.extend_from_slice(&[0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // bits
+        jpeg.extend_from_slice(&[0]); // values
+
+        // SOS with dc_table_id = 5 (invalid!)
+        // tables byte: high nibble = DC table, low nibble = AC table
+        // 0x50 = DC table 5, AC table 0
+        jpeg.extend_from_slice(&[
+            0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x50, // dc=5, ac=0
+            0x00, 0x3F, 0x00,
+        ]);
+
+        // EOI
+        jpeg.extend_from_slice(&[0xFF, 0xD9]);
+
+        let result = decode_jpeg(&jpeg);
+        assert!(result.is_err(), "should error on invalid DC table ID");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("DC Huffman table ID"),
+            "error should mention DC Huffman table ID: {err}"
+        );
+    }
+
+    #[test]
+    fn test_jpeg_decode_invalid_ac_table_id() {
+        // Craft a JPEG with invalid AC Huffman table ID (>3) in SOS
+        let mut jpeg = Vec::new();
+
+        // SOI
+        jpeg.extend_from_slice(&[0xFF, 0xD8]);
+
+        // DQT with table 0
+        jpeg.extend_from_slice(&[0xFF, 0xDB, 0x00, 0x43, 0x00]);
+        jpeg.extend_from_slice(&[16u8; 64]);
+
+        // SOF0 with valid quant_table_id = 0
+        jpeg.extend_from_slice(&[
+            0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
+        ]);
+
+        // DHT with table 0 (DC)
+        jpeg.extend_from_slice(&[0xFF, 0xC4, 0x00, 0x14, 0x00]);
+        jpeg.extend_from_slice(&[0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // bits
+        jpeg.extend_from_slice(&[0]); // values
+
+        // SOS with ac_table_id = 7 (invalid!)
+        // tables byte: high nibble = DC table, low nibble = AC table
+        // 0x07 = DC table 0, AC table 7
+        jpeg.extend_from_slice(&[
+            0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x07, // dc=0, ac=7
+            0x00, 0x3F, 0x00,
+        ]);
+
+        // EOI
+        jpeg.extend_from_slice(&[0xFF, 0xD9]);
+
+        let result = decode_jpeg(&jpeg);
+        assert!(result.is_err(), "should error on invalid AC table ID");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("AC Huffman table ID"),
+            "error should mention AC Huffman table ID: {err}"
+        );
     }
 }
