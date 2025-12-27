@@ -3,29 +3,29 @@ name: Image Resolution Resizing
 overview: "Add image resizing functionality to pixo across all layers: Rust library core, CLI, WASM API, and web application. Implementation will support bilinear (fast) and bicubic (quality) interpolation algorithms."
 todos:
   - id: resize-module
-    content: Create src/resize/ module with ResizeMethod enum, ResizeOptions struct, and public resize/resize_fit functions
-    status: pending
+    content: Create src/resize.rs module with ResizeAlgorithm enum (Nearest, Bilinear, Lanczos3) and public resize/resize_into functions
+    status: completed
   - id: bilinear-impl
-    content: Implement bilinear interpolation in src/resize/bilinear.rs
-    status: pending
+    content: Implement bilinear interpolation in src/resize.rs
+    status: completed
   - id: bicubic-impl
-    content: Implement bicubic interpolation in src/resize/bicubic.rs
-    status: pending
+    content: Implement Lanczos3 resampling (higher quality than bicubic) in src/resize.rs
+    status: completed
   - id: resize-tests
     content: Add unit tests for resize algorithms
-    status: pending
+    status: completed
   - id: cli-resize
     content: Add --resize, --resize-fit, --scale, and --resize-method flags to CLI
     status: pending
   - id: wasm-resize
     content: Add resizeImage function to WASM API in src/wasm.rs
-    status: pending
+    status: completed
   - id: web-wasm-ts
     content: Add resize wrapper and types to web/src/lib/wasm.ts
-    status: pending
+    status: completed
   - id: web-ui
     content: Add advanced resize options UI to web/src/routes/+page.svelte
-    status: pending
+    status: completed
 ---
 
 # Image Resolution Resizing Plan

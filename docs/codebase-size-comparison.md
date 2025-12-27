@@ -61,7 +61,7 @@ This document provides a comprehensive comparison of codebase sizes between `pix
 3. **pixo is ~7× smaller than mozjpeg** while providing comparable JPEG encoding and basic decoding
 4. **The compression gap comes from SIMD**: mozjpeg has 50K+ lines of hand-tuned assembly; pixo has 3.4K lines of Rust SIMD
 5. **sharp appears small (10K) but depends on libvips (194K LOC)**
-6. **839 test functions** validate encoding, decoding, resizing, CLI, and edge cases
+6. **851 test functions** validate encoding, decoding, resizing, CLI, and edge cases
 
 ---
 
@@ -252,7 +252,7 @@ Test Code: 17,407 LOC (50.8%)
 ├── Compression tests:   156
 ├── Decoding tests:      129
 ├── SIMD tests:          102
-├── Resize tests:         18
+├── Resize tests:         30
 ├── CLI unit tests:       27
 ├── Integration tests:   118
 └── Other:                56
@@ -467,7 +467,7 @@ mod aarch64 {
 **pixo is NOT bloated from AI generation.** In fact, it's remarkably compact:
 
 - **16.9K core LOC** implements PNG + JPEG encoding/decoding + image resizing + DEFLATE/INFLATE + SIMD
-- **50.8% test coverage** is exceptional for codec libraries (839 test functions)
+- **50.8% test coverage** is exceptional for codec libraries (851 test functions)
 - The compression gap (4-5%) comes from **missing 47K lines of hand-tuned assembly**, not from code bloat
 
 The AI-assisted approach traded decades of low-level optimization for:
@@ -534,7 +534,7 @@ compiled to WebAssembly via Emscripten.
 
 | Rank | Library      | Test %    | Tests   | Notes                                     |
 | ---- | ------------ | --------- | ------- | ----------------------------------------- |
-| 1    | **pixo**     | **50.8%** | **839** | **PNG + JPEG enc/dec + resize, zero deps**|
+| 1    | **pixo**     | **50.8%** | **851** | **PNG + JPEG enc/dec + resize, zero deps**|
 | 2    | oxipng       | 50.8%     | ~280    | PNG only (uses C deps)            |
 | 3    | miniz_oxide  | 42.3%     | 61      | DEFLATE only                      |
 | 4    | image-png    | 34.3%     | 90      | PNG only                          |
@@ -610,7 +610,7 @@ compiled to WebAssembly via Emscripten.
 
 **pixo is a well-engineered, compact, well-tested image compression library that trades 30+ years of hand-tuned assembly optimization for modern Rust safety, WASM compatibility, and developer experience.**
 
-The library provides **full encode/decode/resize support** for both PNG and JPEG formats with zero external dependencies. With 839 test functions covering encoding, decoding, resizing, CLI, and edge cases, pixo maintains excellent test coverage while remaining compact.
+The library provides **full encode/decode/resize support** for both PNG and JPEG formats with zero external dependencies. With 851 test functions covering encoding, decoding, resizing, CLI, and edge cases, pixo maintains excellent test coverage while remaining compact.
 
 The 4-5% compression gap is the cost of maintaining ~16.9K LOC instead of ~68K+ LOC (mozjpeg alone). For most web applications, this is an excellent tradeoff.
 
@@ -660,7 +660,7 @@ The 4-5% compression gap is the cost of maintaining ~16.9K LOC instead of ~68K+ 
 | └── simd_fallback.rs      | 542        | 24      |
 | benches/                  | 2,424      | -       |
 | web/e2e/ (Playwright)     | 282        | 22      |
-| **Total**                 | **17,689** | **839** |
+| **Total**                 | **17,689** | **851** |
 
 Note: Test counts include doctests, property-based tests, CLI unit tests, resize tests, and decode conformance tests.
 
