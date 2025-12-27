@@ -149,52 +149,60 @@ pub use color::ColorType;
 pub use error::{Error, Result};
 
 /// High-level and conceptual guides rendered inside rustdoc.
+///
+/// The markdown files in `docs/` use relative links (e.g., `./huffman-coding.md`)
+/// which work when browsing on GitHub. At build time, `build.rs` transforms these
+/// to rustdoc intra-doc links (e.g., `crate::guides::huffman_coding`) so they work
+/// on docs.rs.
 #[cfg(doc)]
 pub mod guides {
     #![allow(clippy::all)]
 
-    #[doc = include_str!("../docs/README.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/README.md"))]
     pub mod overview {}
 
-    #[doc = include_str!("../docs/crate.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/crate.md"))]
     pub mod crate_usage {}
 
-    #[doc = include_str!("../docs/introduction-to-image-compression.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/introduction-to-image-compression.md"))]
     pub mod introduction_to_image_compression {}
 
-    #[doc = include_str!("../docs/introduction-to-rust.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/introduction-to-rust.md"))]
     pub mod introduction_to_rust {}
 
-    #[doc = include_str!("../docs/huffman-coding.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/huffman-coding.md"))]
     pub mod huffman_coding {}
 
-    #[doc = include_str!("../docs/lz77-compression.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/lz77-compression.md"))]
     pub mod lz77_compression {}
 
-    #[doc = include_str!("../docs/deflate.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/deflate.md"))]
     pub mod deflate {}
 
-    #[doc = include_str!("../docs/png-encoding.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/png-encoding.md"))]
     pub mod png_encoding {}
 
-    #[doc = include_str!("../docs/jpeg-encoding.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/jpeg-encoding.md"))]
     pub mod jpeg_encoding {}
 
-    #[doc = include_str!("../docs/dct.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/dct.md"))]
     pub mod dct {}
 
-    #[doc = include_str!("../docs/quantization.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/quantization.md"))]
     pub mod quantization {}
 
-    #[doc = include_str!("../docs/performance-optimization.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/performance-optimization.md"))]
     pub mod performance_optimization {}
 
-    #[doc = include_str!("../docs/compression-evolution.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/compression-evolution.md"))]
     pub mod compression_evolution {}
 
-    #[doc = include_str!("../docs/wasm.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/wasm.md"))]
     pub mod wasm {}
 
-    #[doc = include_str!("../docs/cli.md")]
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/cli.md"))]
     pub mod cli {}
+
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/decoding.md"))]
+    pub mod decoding {}
 }
