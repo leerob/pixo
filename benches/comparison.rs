@@ -1958,9 +1958,8 @@ fn measure_image_jpeg_encode(pixels: &[u8], width: u32, height: u32) -> (usize, 
 
 fn get_wasm_size() -> Option<usize> {
     let paths = [
+        "web/src/lib/pixo-wasm/pixo_bg.wasm",
         "target/wasm32-unknown-unknown/release/pixo.wasm",
-        "target/wasm32-unknown-unknown/release/pixo_bg.wasm",
-        "my-app/src/lib/pixo-wasm/pixo_bg.wasm",
     ];
 
     for path in paths {

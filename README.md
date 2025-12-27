@@ -1,9 +1,5 @@
 # pixo
 
-[![crates.io](https://img.shields.io/crates/v/pixo.svg)](https://crates.io/crates/pixo)
-[![docs.rs](https://docs.rs/pixo/badge.svg)](https://docs.rs/pixo)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-
 A minimal-dependency, high-performance image compression library written in Rust.
 
 This is a work-in-progress and exploration of coding agents.
@@ -15,7 +11,7 @@ This is a work-in-progress and exploration of coding agents.
 - **Zero runtime dependencies** — All encoding algorithms implemented from scratch
 - **Entirely in Rust** — No C or C++ codecs required
 - **PNG and JPEG support** — Lossless PNG, lossy PNG (quantization), and lossy JPEG
-- **Small WASM binary** — 142 KB with competitive compression ([benchmarks](./benches/BENCHMARKS.md))
+- **Small WASM binary** — 152 KB with competitive compression ([benchmarks](./benches/BENCHMARKS.md))
 - **Well-tested** — 85% code coverage, 785 tests ([codebase comparison](./docs/codebase-size-comparison.md))
 
 ## Usage
