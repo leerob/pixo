@@ -44,15 +44,25 @@ version = "X.X.X"
 
 ### 4. Update the lockfile
 
-**IMPORTANT:** Always run cargo to regenerate `Cargo.lock` with the new version:
+Run cargo to regenerate `Cargo.lock` with the new version:
 
 ```bash
 cargo check
 ```
 
-This updates the version in Cargo.lock. Verify it's modified with `git status`.
+Verify Cargo.lock is modified with `git status`.
 
-### 5. Format and lint
+### 5. Build WASM
+
+Rebuild the WASM bindings with the new version:
+
+```bash
+node web/scripts/build-wasm.mjs
+```
+
+This ensures the WASM binary is included in the release commit.
+
+### 6. Format and lint
 
 Format code and verify it passes CI checks:
 
@@ -62,17 +72,17 @@ cargo fmt && cargo clippy --all-targets --all-features -- -D warnings
 
 If clippy reports warnings, fix them before proceeding.
 
-### 6. Commit and tag the release
+### 7. Commit and tag the release
 
-Create a release commit and tag:
+Create a **single** release commit with all changes, then tag it:
 
 ```bash
-git add Cargo.toml Cargo.lock CHANGELOG.md
+git add Cargo.toml Cargo.lock CHANGELOG.md web/src/lib/pixo-wasm/
 git commit -m "Release X.X.X"
 git tag -a vX.X.X -m "Release X.X.X"
 ```
 
-### 7. Push to remote
+### 8. Push to remote
 
 Push the commit and tag to the remote repository:
 
@@ -80,7 +90,7 @@ Push the commit and tag to the remote repository:
 git push origin main --tags
 ```
 
-### 8. Publish to crates.io
+### 9. Publish to crates.io
 
 Publish the crate:
 
@@ -90,26 +100,11 @@ cargo publish
 
 Wait for the publish to complete and verify success.
 
-### 9. Build and update WASM
-
-Rebuild the WASM bindings with the new version:
-
-```bash
-node web/scripts/build-wasm.mjs
-```
-
-Then commit the updated WASM files:
-
-```bash
-git add web/src/lib/pixo-wasm/
-git commit -m "Update WASM bindings for X.X.X"
-git push origin main
-```
-
 ## Notes
 
 - The version parameter is required (e.g., `/release 0.5.0`)
 - Use today's date for the changelog entry
 - Follow semantic versioning: MAJOR.MINOR.PATCH
 - Breaking changes should be clearly marked with **BREAKING:**
+- All changes go in **one commit** - WASM is built before committing
 - All steps should be executed automatically - don't just remind the user
