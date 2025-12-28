@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 ### Migration Guide
 
 **Before (0.3.x):**
+
 ```rust
 // PNG
 png::encode(&pixels, width, height, ColorType::Rgba)?;
@@ -27,12 +28,13 @@ jpeg::encode_with_options(&pixels, width, height, ColorType::Rgb, &options)?;
 ```
 
 **After (0.4.0):**
+
 ```rust
 // PNG
 let opts = PngOptions::builder(width, height).color_type(ColorType::Rgba).build();
 png::encode(&pixels, &opts)?;
 
-// JPEG  
+// JPEG
 let opts = JpegOptions::builder(width, height)
     .color_type(ColorType::Rgb)
     .quality(85)
@@ -63,8 +65,23 @@ jpeg::encode(&pixels, &opts)?;
 - **Image Resizing API** — New `resize` module for high-quality image resizing
   - Three algorithms: `Nearest` (fastest), `Bilinear` (balanced), `Lanczos3` (highest quality, default)
   - Support for all color types: Gray, GrayAlpha, RGB, RGBA
+  - `resize()` for simple usage, `resize_into()` for buffer reuse
   - Separable filtering with precomputed contributions for O(2n) per-pixel performance
   - Parallel processing support via the `parallel` feature flag
+
+### Example
+
+```rust
+use pixo::{resize, ColorType, ResizeAlgorithm};
+
+// Resize a 100x100 RGBA image to 50x50 using Lanczos3
+let pixels = vec![128u8; 100 * 100 * 4];
+let resized = resize::resize(
+    &pixels, 100, 100, 50, 50,
+    ColorType::Rgba,
+    ResizeAlgorithm::Lanczos3,
+)?;
+```
 
 - **WASM Resize Support** — `resizeImage()` function in WASM bindings
   - Aspect ratio preservation option
