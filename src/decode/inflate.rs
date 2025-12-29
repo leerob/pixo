@@ -525,13 +525,9 @@ mod tests {
 
     #[test]
     fn test_inflate_stored() {
-        // Create a stored block manually:
-        // BFINAL=1, BTYPE=00 (stored)
-        // LEN = 5, NLEN = !5 = 0xFFFA
-        // Data: "hello"
-        let mut data = vec![0b00000001]; // BFINAL=1, BTYPE=00, aligned to byte
-        data.extend_from_slice(&[5, 0]); // LEN = 5
-        data.extend_from_slice(&[0xFA, 0xFF]); // NLEN = 0xFFFA
+        let mut data = vec![0b00000001];
+        data.extend_from_slice(&[5, 0]);
+        data.extend_from_slice(&[0xFA, 0xFF]);
         data.extend_from_slice(b"hello");
 
         let output = inflate_with_size(&data, None).unwrap();
@@ -540,7 +536,6 @@ mod tests {
 
     #[test]
     fn test_inflate_zlib_roundtrip() {
-        // Compress with our encoder, decompress with our decoder
         use crate::compress::deflate::deflate_zlib;
 
         let original = b"The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.";
@@ -577,9 +572,6 @@ mod tests {
     fn test_inflate_zlib_repetitive() {
         use crate::compress::deflate::deflate_zlib;
 
-        // Test various sizes of repetitive data
-        // Note: Very large repetitive data may trigger stored blocks which
-        // have different characteristics. Keep test sizes reasonable.
         for size in [100, 500, 1000] {
             let original = vec![42u8; size];
             let compressed = deflate_zlib(&original, 6);
@@ -606,7 +598,6 @@ mod tests {
         let original = b"test data";
         let mut compressed = deflate_zlib(original, 6);
 
-        // Corrupt the checksum
         let len = compressed.len();
         compressed[len - 1] ^= 0xFF;
 
@@ -615,7 +606,6 @@ mod tests {
 
     #[test]
     fn test_huffman_table_from_lengths() {
-        // Simple table: two symbols with lengths 1 each
         let lengths = vec![1, 1];
         let table = HuffmanTable::from_lengths(&lengths).unwrap();
 
