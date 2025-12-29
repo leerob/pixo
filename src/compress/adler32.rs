@@ -64,7 +64,6 @@ mod tests {
 
     #[test]
     fn test_adler32_scalar_directly() {
-        // Test the scalar implementation directly
         assert_eq!(adler32_scalar(&[]), 1);
         assert_eq!(adler32_scalar(b"hello"), 0x062C0215);
         assert_eq!(adler32_scalar(b"123456789"), 0x091E01DE);
@@ -72,16 +71,13 @@ mod tests {
 
     #[test]
     fn test_adler32_scalar_large_input() {
-        // Test with input larger than NMAX (5552) to exercise chunk boundary
         let large_data = vec![0xAB; 10000];
         let result = adler32_scalar(&large_data);
-        // Just verify it completes without panic and returns non-zero
         assert_ne!(result, 0);
     }
 
     #[test]
     fn test_adler32_scalar_exactly_nmax() {
-        // Test with exactly NMAX bytes
         let data = vec![0xFF; 5552];
         let result = adler32_scalar(&data);
         assert_ne!(result, 0);
@@ -89,7 +85,6 @@ mod tests {
 
     #[test]
     fn test_adler32_scalar_multiple_chunks() {
-        // Test with multiple full NMAX chunks
         let data = vec![0x55; 5552 * 3];
         let result = adler32_scalar(&data);
         assert_ne!(result, 0);

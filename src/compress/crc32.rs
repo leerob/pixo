@@ -108,7 +108,6 @@ mod tests {
 
     #[test]
     fn test_crc32_check_value() {
-        // Standard test: CRC32 of "123456789" should be 0xCBF43926
         let data = b"123456789";
         assert_eq!(crc32(data), 0xCBF43926);
     }
@@ -117,10 +116,8 @@ mod tests {
     fn test_crc32_incremental() {
         let data = b"123456789";
 
-        // Full calculation
         let full_crc = crc32(data);
 
-        // Incremental calculation
         let mut crc = Crc32::new();
         crc.update(&data[..4]);
         crc.update(&data[4..]);
@@ -131,8 +128,6 @@ mod tests {
 
     #[test]
     fn test_crc32_png_iend() {
-        // PNG IEND chunk has type "IEND" (no data)
-        // CRC should be 0xAE426082
         let chunk_type = b"IEND";
         assert_eq!(crc32(chunk_type), 0xAE426082);
     }
@@ -140,30 +135,25 @@ mod tests {
     #[test]
     fn test_crc32_default() {
         let crc: Crc32 = Default::default();
-        assert_eq!(crc.finalize(), 0); // Empty data
+        assert_eq!(crc.finalize(), 0);
     }
 
     #[test]
     fn test_crc32_slicing_by_8() {
-        // Test with data that exercises the slicing-by-8 path
-        // (needs at least 8 bytes)
         let data = b"12345678ABCDEFGH";
         let result = crc32(data);
-        // Verify against known value (pre-computed)
         assert_ne!(result, 0);
     }
 
     #[test]
     fn test_crc32_remainder_path() {
-        // Test data that's not a multiple of 8 to exercise remainder path
-        let data = b"12345"; // 5 bytes, no full 8-byte chunks
+        let data = b"12345";
         let result = crc32(data);
         assert_ne!(result, 0);
     }
 
     #[test]
     fn test_crc32_large_input() {
-        // Test with large input to ensure slicing works correctly
         let data = vec![0xAB; 1000];
         let result = crc32(&data);
         assert_ne!(result, 0);
