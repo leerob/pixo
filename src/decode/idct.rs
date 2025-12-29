@@ -238,7 +238,6 @@ mod tests {
         let coeffs = [0i32; 64];
         let output = idct_2d_integer(&coeffs);
 
-        // All zeros should produce middle gray (128)
         for &pixel in &output {
             assert_eq!(pixel, 128);
         }
@@ -247,11 +246,10 @@ mod tests {
     #[test]
     fn test_idct_dc_only() {
         let mut coeffs = [0i32; 64];
-        coeffs[0] = 100 << CONST_BITS; // Large positive DC
+        coeffs[0] = 100 << CONST_BITS;
 
         let output = idct_2d_integer(&coeffs);
 
-        // All pixels should be above 128 (DC adds brightness)
         for &pixel in &output {
             assert!(pixel > 128 || pixel == 255, "pixel {pixel} should be > 128");
         }
@@ -260,11 +258,10 @@ mod tests {
     #[test]
     fn test_idct_negative_dc() {
         let mut coeffs = [0i32; 64];
-        coeffs[0] = -100 << CONST_BITS; // Negative DC
+        coeffs[0] = -100 << CONST_BITS;
 
         let output = idct_2d_integer(&coeffs);
 
-        // All pixels should be below 128
         for &pixel in &output {
             assert!(pixel < 128 || pixel == 0, "pixel {pixel} should be < 128");
         }
@@ -272,17 +269,10 @@ mod tests {
 
     #[test]
     fn test_idct_output_range() {
-        // Test with various coefficient patterns to ensure output is always 0-255
-        // Use smaller values to avoid overflow in fixed-point math
-        let patterns = [
-            [100i32; 64],  // All positive
-            [-100i32; 64], // All negative
-            [500i32; 64],  // Larger values
-        ];
+        let patterns = [[100i32; 64], [-100i32; 64], [500i32; 64]];
 
         for pattern in &patterns {
             let output = idct_2d_integer(pattern);
-            // All output values should be valid u8 (the function returns [u8; 64])
             assert_eq!(output.len(), 64);
         }
     }
@@ -290,8 +280,8 @@ mod tests {
     #[test]
     fn test_dequantize() {
         let mut coeffs = [0i16; 64];
-        coeffs[0] = 10; // DC
-        coeffs[1] = 5; // First AC
+        coeffs[0] = 10;
+        coeffs[1] = 5;
 
         let mut qtable = [16u16; 64];
         qtable[0] = 16;
@@ -299,9 +289,7 @@ mod tests {
 
         let result = dequantize(&coeffs, &qtable);
 
-        // DC (zigzag 0 -> natural 0): 10 * 16 = 160
         assert_eq!(result[0], 160);
-        // First AC (zigzag 1 -> natural 1): 5 * 11 = 55
         assert_eq!(result[1], 55);
     }
 
@@ -331,28 +319,23 @@ mod tests {
 
     #[test]
     fn test_descale_and_clamp_boundaries() {
-        // Test the output is valid u8 (all u8 values are valid)
         let output = descale_and_clamp(0);
-        // Just verify it produces a value (it always will since u8 is bounded)
         let _ = output;
     }
 
     #[test]
     fn test_descale_and_clamp_extremes() {
-        // Very large positive value should clamp to 255
         let output = descale_and_clamp(i32::MAX / 2);
         assert_eq!(output, 255);
 
-        // Very large negative value should clamp to 0
         let output = descale_and_clamp(i32::MIN / 2);
         assert_eq!(output, 0);
     }
 
     #[test]
     fn test_fix_mul() {
-        // Test fixed-point multiplication
-        let result = fix_mul(8192, 8192); // 1.0 * 1.0 in Q13
-        assert_eq!(result, 8192); // Should be ~1.0
+        let result = fix_mul(8192, 8192);
+        assert_eq!(result, 8192);
 
         let result = fix_mul(0, 12345);
         assert_eq!(result, 0);
@@ -360,13 +343,11 @@ mod tests {
 
     #[test]
     fn test_idct_symmetry() {
-        // Symmetric input should produce symmetric output
         let mut coeffs = [0i32; 64];
-        coeffs[0] = 1000; // DC only
+        coeffs[0] = 1000;
 
         let output = idct_2d_integer(&coeffs);
 
-        // With only DC, all output values should be the same
         let first = output[0];
         for &pixel in &output {
             assert_eq!(
@@ -378,35 +359,18 @@ mod tests {
 
     #[test]
     fn test_unzigzag_matches_encoder_zigzag() {
-        // The UNZIGZAG table inside dequantize must match the encoder's ZIGZAG.
-        // We verify by checking that specific zigzag positions map to correct natural positions.
-        // Standard JPEG zigzag order for first 10 positions:
-        //   zigzag 0 -> natural 0  (DC)
-        //   zigzag 1 -> natural 1
-        //   zigzag 2 -> natural 8  (second row)
-        //   zigzag 3 -> natural 16 (third row)
-        //   zigzag 4 -> natural 9
-        //   zigzag 5 -> natural 2
-        //   zigzag 6 -> natural 3
-        //   zigzag 7 -> natural 10
-        //   zigzag 8 -> natural 17
-        //   zigzag 9 -> natural 24
+        let qtable = [1u16; 64];
 
-        let qtable = [1u16; 64]; // Identity quantization
-
-        // Test zigzag position 2 should map to natural position 8
         let mut coeffs = [0i16; 64];
-        coeffs[2] = 42; // Put value at zigzag position 2
+        coeffs[2] = 42;
         let result = dequantize(&coeffs, &qtable);
         assert_eq!(result[8], 42, "zigzag[2] should map to natural[8]");
 
-        // Test zigzag position 3 should map to natural position 16
         let mut coeffs = [0i16; 64];
         coeffs[3] = 42;
         let result = dequantize(&coeffs, &qtable);
         assert_eq!(result[16], 42, "zigzag[3] should map to natural[16]");
 
-        // Test zigzag position 5 should map to natural position 2
         let mut coeffs = [0i16; 64];
         coeffs[5] = 42;
         let result = dequantize(&coeffs, &qtable);
