@@ -294,17 +294,14 @@ mod tests {
 
     #[test]
     fn test_build_codes_simple() {
-        // Frequencies: a=5, b=2, c=1, d=1
         let freqs = [5, 2, 1, 1];
         let codes = build_codes(&freqs, 15);
 
-        // All symbols should have codes
         assert!(codes[0].length > 0);
         assert!(codes[1].length > 0);
         assert!(codes[2].length > 0);
         assert!(codes[3].length > 0);
 
-        // More frequent symbols should have shorter codes
         assert!(codes[0].length <= codes[2].length);
         assert!(codes[0].length <= codes[3].length);
     }
@@ -325,7 +322,6 @@ mod tests {
         let freqs = [10, 5, 3, 2, 1, 1, 1, 1];
         let codes = build_codes(&freqs, 15);
 
-        // Verify prefix-free property
         for i in 0..codes.len() {
             for j in (i + 1)..codes.len() {
                 if codes[i].length > 0 && codes[j].length > 0 {
@@ -348,14 +344,13 @@ mod tests {
         let codes = fixed_literal_codes();
         assert_eq!(codes.len(), 288);
 
-        // Check expected lengths
-        assert_eq!(codes[0].length, 8); // 0-143 are 8 bits
+        assert_eq!(codes[0].length, 8);
         assert_eq!(codes[143].length, 8);
-        assert_eq!(codes[144].length, 9); // 144-255 are 9 bits
+        assert_eq!(codes[144].length, 9);
         assert_eq!(codes[255].length, 9);
-        assert_eq!(codes[256].length, 7); // 256-279 are 7 bits
+        assert_eq!(codes[256].length, 7);
         assert_eq!(codes[279].length, 7);
-        assert_eq!(codes[280].length, 8); // 280-287 are 8 bits
+        assert_eq!(codes[280].length, 8);
     }
 
     #[test]
@@ -363,7 +358,6 @@ mod tests {
         let codes = fixed_distance_codes();
         assert_eq!(codes.len(), 32);
 
-        // All should be 5 bits
         for code in codes {
             assert_eq!(code.length, 5);
         }
@@ -371,9 +365,7 @@ mod tests {
 
     #[test]
     fn test_code_lengths_respect_max_length() {
-        // Many symbols with non-zero frequency should still produce codes
-        // that do not exceed the specified max length (15 for DEFLATE literals).
-        let freqs = vec![1u32; 400]; // more than the DEFLATE literal alphabet size
+        let freqs = vec![1u32; 400];
         let codes = build_codes(&freqs, 15);
         for code in codes {
             assert!(
@@ -435,13 +427,10 @@ mod tests {
 
     #[test]
     fn test_limit_code_lengths_with_overflow() {
-        // Force a situation where initial tree would be too deep
-        // by having exponentially growing frequencies
         let mut freqs = vec![1u32; 32];
         for i in 0..32 {
             freqs[i] = 1 << i;
         }
-        // Use a small max length to force limiting
         let codes = build_codes(&freqs, 7);
         for code in &codes {
             if code.length > 0 {
@@ -460,10 +449,8 @@ mod tests {
         let codes = build_codes(&freqs, 15);
 
         assert_eq!(codes.len(), 2);
-        // Both should have length 1 (perfect binary tree)
         assert_eq!(codes[0].length, 1);
         assert_eq!(codes[1].length, 1);
-        // They should have different codes
         assert_ne!(codes[0].code, codes[1].code);
     }
 
