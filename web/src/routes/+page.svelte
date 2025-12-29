@@ -1,8 +1,7 @@
 <script lang="ts">
+  import { compressImage, resizeImage } from "$lib/compress-client";
   import {
-    compressImage,
     initWasm,
-    resizeImage,
     calculateResizeDimensions,
     type PresetLevel,
     type ResizeAlgorithm,
@@ -64,7 +63,7 @@
   let detectedFormat = $derived.by(() => {
     if (jobs.length === 0) return "png" as const;
     const formats = new Set(
-      jobs.map((j) => (j.type === "image/jpeg" ? "jpeg" : "png"))
+      jobs.map((j) => (j.type === "image/jpeg" ? "jpeg" : "png")),
     );
     if (formats.size === 1)
       return formats.values().next().value as "png" | "jpeg";
@@ -76,22 +75,22 @@
       ? "Mixed"
       : detectedFormat === "jpeg"
         ? "JPEG"
-        : "PNG"
+        : "PNG",
   );
 
   const fileInputId = "file-input";
 
   let completedJobs = $derived(jobs.filter((j) => j.result));
   let totalOriginal = $derived(
-    completedJobs.reduce((sum, j) => sum + j.size, 0)
+    completedJobs.reduce((sum, j) => sum + j.size, 0),
   );
   let totalCompressed = $derived(
-    completedJobs.reduce((sum, j) => sum + (j.result?.size ?? 0), 0)
+    completedJobs.reduce((sum, j) => sum + (j.result?.size ?? 0), 0),
   );
   let totalSavingsPct = $derived(
     totalOriginal > 0
       ? ((totalOriginal - totalCompressed) / totalOriginal) * 100
-      : 0
+      : 0,
   );
   let selectedJob = $derived(jobs.find((j) => j.id === selectedJobId) ?? null);
   let hasMultipleJobs = $derived(jobs.length > 1);
@@ -101,12 +100,12 @@
     viewMode === "single" &&
       selectedJob !== null &&
       (selectedJob.status === "done" || selectedJob.status === "compressing") &&
-      !hasMultipleJobs
+      !hasMultipleJobs,
   );
 
   // Get aspect ratio of selected job for maintaining proportions
   let selectedAspectRatio = $derived(
-    selectedJob ? selectedJob.width / selectedJob.height : 1
+    selectedJob ? selectedJob.width / selectedJob.height : 1,
   );
 
   function handleResizeToggle() {
@@ -157,7 +156,7 @@
     const units = ["B", "KB", "MB", "GB"];
     const exponent = Math.min(
       Math.floor(Math.log(bytes) / Math.log(1024)),
-      units.length - 1
+      units.length - 1,
     );
     const value = bytes / 1024 ** exponent;
     return `${value.toFixed(value >= 10 || value % 1 === 0 ? 0 : 1)} ${units[exponent]}`;
@@ -181,7 +180,7 @@
 
   function triggerFilePicker() {
     const input = document.getElementById(
-      fileInputId
+      fileInputId,
     ) as HTMLInputElement | null;
     if (input) input.click();
   }
@@ -245,7 +244,7 @@
 
     const scale = Math.min(
       maxSize / imageData.width,
-      maxSize / imageData.height
+      maxSize / imageData.height,
     );
     canvas.width = Math.round(imageData.width * scale);
     canvas.height = Math.round(imageData.height * scale);
@@ -292,9 +291,6 @@
       error: undefined,
     };
 
-    // Yield to browser so UI can update before blocking WASM call
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
     try {
       // Apply resize if enabled
       let imageDataToCompress = job.imageData;
@@ -304,7 +300,7 @@
               job.width,
               job.height,
               resizeWidth,
-              resizeHeight
+              resizeHeight,
             )
           : { width: resizeWidth, height: resizeHeight };
 
