@@ -65,7 +65,7 @@ export async function compressImage(
     }, REQUEST_TIMEOUT);
 
     pendingRequests.set(id, { resolve, reject, timeout });
-    const buffer = imageData.data.buffer;
+    const buffer = imageData.data.buffer.slice(0);
     getWorker().postMessage(
       {
         id,
@@ -92,7 +92,7 @@ export async function resizeImage(
     }, REQUEST_TIMEOUT);
 
     pendingRequests.set(id, { resolve, reject, timeout });
-    const buffer = imageData.data.buffer;
+    const buffer = imageData.data.buffer.slice(0);
     getWorker().postMessage(
       {
         id,
