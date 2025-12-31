@@ -127,39 +127,48 @@
       // Initialize last applied to current so no change is pending yet
       lastAppliedWidth = selectedJob.width;
       lastAppliedHeight = selectedJob.height;
+      lastAppliedAlgorithm = resizeAlgorithm;
       resizePending = false;
     } else {
       resizePending = false;
     }
   }
 
-  // Track last applied resize dimensions to detect actual changes
+  // Track last applied resize settings to detect actual changes
   let lastAppliedWidth = $state(0);
   let lastAppliedHeight = $state(0);
+  let lastAppliedAlgorithm: ResizeAlgorithm = $state("lanczos3");
+
+  function hasResizeChanges(): boolean {
+    return (
+      resizeWidth !== lastAppliedWidth ||
+      resizeHeight !== lastAppliedHeight ||
+      resizeAlgorithm !== lastAppliedAlgorithm
+    );
+  }
 
   function handleWidthInput() {
     if (resizeMaintainAspect && selectedJob) {
       resizeHeight = Math.max(1, Math.round(resizeWidth / selectedAspectRatio));
     }
-    // Only set pending if dimensions differ from last applied
-    resizePending = resizeWidth !== lastAppliedWidth || resizeHeight !== lastAppliedHeight;
+    resizePending = hasResizeChanges();
   }
 
   function handleHeightInput() {
     if (resizeMaintainAspect && selectedJob) {
       resizeWidth = Math.max(1, Math.round(resizeHeight * selectedAspectRatio));
     }
-    // Only set pending if dimensions differ from last applied
-    resizePending = resizeWidth !== lastAppliedWidth || resizeHeight !== lastAppliedHeight;
+    resizePending = hasResizeChanges();
   }
 
   function handleAlgorithmChange() {
-    resizePending = true;
+    resizePending = hasResizeChanges();
   }
 
   function applyResize() {
     lastAppliedWidth = resizeWidth;
     lastAppliedHeight = resizeHeight;
+    lastAppliedAlgorithm = resizeAlgorithm;
     resizePending = false;
     recompressAll();
   }
@@ -798,11 +807,8 @@
         bind:this={imageContainerRef}
         onmousedown={handleMouseDown}
         ontouchstart={handleTouchStart}
-        style={zoomLevel > 1
-          ? `transform: scale(${zoomLevel}); transform-origin: center center;`
-          : wasResized
-            ? `width: min(${displayWidth}px, calc(100vw - 2rem), calc((100vh - 200px) * ${displayWidth} / ${displayHeight})); aspect-ratio: ${displayWidth} / ${displayHeight};`
-            : ""}
+        style={(zoomLevel > 1 ? `transform: scale(${zoomLevel}); transform-origin: center center;` : "") +
+          (wasResized ? `width: min(${displayWidth}px, calc(100vw - 2rem), calc((100vh - 200px) * ${displayWidth} / ${displayHeight})); aspect-ratio: ${displayWidth} / ${displayHeight};` : "")}
         data-testid="image-comparison-container"
       >
         <img
@@ -810,7 +816,9 @@
           alt="Original"
           class="select-none object-contain {wasResized
             ? 'w-full h-full'
-            : 'max-h-[calc(100vh-200px)] max-w-[calc(100vw-2rem)] sm:max-h-[calc(100vh-180px)] sm:max-w-full'}"
+            : zoomLevel > 1
+              ? ''
+              : 'max-h-[calc(100vh-200px)] max-w-[calc(100vw-2rem)] sm:max-h-[calc(100vh-180px)] sm:max-w-full'}"
           draggable="false"
           data-testid="original-image"
         />
@@ -826,7 +834,9 @@
               alt="Compressed"
               class="select-none object-contain {wasResized
                 ? 'w-full h-full'
-                : 'max-h-[calc(100vh-200px)] max-w-[calc(100vw-2rem)] sm:max-h-[calc(100vh-180px)] sm:max-w-full'}"
+                : zoomLevel > 1
+                  ? ''
+                  : 'max-h-[calc(100vh-200px)] max-w-[calc(100vw-2rem)] sm:max-h-[calc(100vh-180px)] sm:max-w-full'}"
               draggable="false"
               data-testid="compressed-image"
             />
