@@ -31,6 +31,8 @@
       size: number;
       savings: number;
       elapsedMs: number;
+      width: number;
+      height: number;
     };
   };
 
@@ -95,6 +97,15 @@
   let selectedJob = $derived(jobs.find((j) => j.id === selectedJobId) ?? null);
   let hasMultipleJobs = $derived(jobs.length > 1);
 
+  // For image comparison: check if result was resized
+  let wasResized = $derived(
+    selectedJob?.result &&
+      (selectedJob.result.width !== selectedJob.width ||
+        selectedJob.result.height !== selectedJob.height)
+  );
+  let displayWidth = $derived(selectedJob?.result?.width ?? selectedJob?.width ?? 0);
+  let displayHeight = $derived(selectedJob?.result?.height ?? selectedJob?.height ?? 0);
+
   // Check if resize option should be visible (single image, done or compressing)
   let showResizeOption = $derived(
     viewMode === "single" &&
@@ -113,24 +124,33 @@
       // When enabling resize, set dimensions to image dimensions
       resizeWidth = selectedJob.width;
       resizeHeight = selectedJob.height;
-      resizePending = true;
+      // Initialize last applied to current so no change is pending yet
+      lastAppliedWidth = selectedJob.width;
+      lastAppliedHeight = selectedJob.height;
+      resizePending = false;
     } else {
       resizePending = false;
     }
   }
 
-  function handleWidthChange() {
+  // Track last applied resize dimensions to detect actual changes
+  let lastAppliedWidth = $state(0);
+  let lastAppliedHeight = $state(0);
+
+  function handleWidthInput() {
     if (resizeMaintainAspect && selectedJob) {
       resizeHeight = Math.max(1, Math.round(resizeWidth / selectedAspectRatio));
     }
-    resizePending = true;
+    // Only set pending if dimensions differ from last applied
+    resizePending = resizeWidth !== lastAppliedWidth || resizeHeight !== lastAppliedHeight;
   }
 
-  function handleHeightChange() {
+  function handleHeightInput() {
     if (resizeMaintainAspect && selectedJob) {
       resizeWidth = Math.max(1, Math.round(resizeHeight * selectedAspectRatio));
     }
-    resizePending = true;
+    // Only set pending if dimensions differ from last applied
+    resizePending = resizeWidth !== lastAppliedWidth || resizeHeight !== lastAppliedHeight;
   }
 
   function handleAlgorithmChange() {
@@ -138,12 +158,15 @@
   }
 
   function applyResize() {
+    lastAppliedWidth = resizeWidth;
+    lastAppliedHeight = resizeHeight;
     resizePending = false;
     recompressAll();
   }
 
   function handleResizeKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && resizePending) {
+      e.preventDefault();
       applyResize();
     }
   }
@@ -370,12 +393,16 @@
       const savings =
         job.size > 0 ? ((job.size - blob.size) / job.size) * 100 : 0;
 
+      // Store the result dimensions (may differ from original if resized)
+      const resultWidth = imageDataToCompress.width;
+      const resultHeight = imageDataToCompress.height;
+
       const currentIndex = jobs.findIndex((j) => j.id === job.id);
       if (currentIndex !== -1) {
         jobs[currentIndex] = {
           ...jobs[currentIndex],
           status: "done",
-          result: { blob, url, size: blob.size, savings, elapsedMs },
+          result: { blob, url, size: blob.size, savings, elapsedMs, width: resultWidth, height: resultHeight },
         };
       }
     } catch (err) {
@@ -766,23 +793,23 @@
     >
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="relative touch-none {zoomLevel > 1
-          ? ''
-          : 'max-h-full max-w-full'}"
+        class="relative touch-none"
         class:cursor-ew-resize={job.result}
         bind:this={imageContainerRef}
         onmousedown={handleMouseDown}
         ontouchstart={handleTouchStart}
         style={zoomLevel > 1
           ? `transform: scale(${zoomLevel}); transform-origin: center center;`
-          : ""}
+          : wasResized
+            ? `width: min(${displayWidth}px, calc(100vw - 2rem), calc((100vh - 200px) * ${displayWidth} / ${displayHeight})); aspect-ratio: ${displayWidth} / ${displayHeight};`
+            : ""}
         data-testid="image-comparison-container"
       >
         <img
           src={job.originalUrl}
           alt="Original"
-          class="object-contain select-none {zoomLevel > 1
-            ? ''
+          class="select-none object-contain {wasResized
+            ? 'w-full h-full'
             : 'max-h-[calc(100vh-200px)] max-w-[calc(100vw-2rem)] sm:max-h-[calc(100vh-180px)] sm:max-w-full'}"
           draggable="false"
           data-testid="original-image"
@@ -797,8 +824,8 @@
             <img
               src={job.result.url}
               alt="Compressed"
-              class="object-contain select-none {zoomLevel > 1
-                ? ''
+              class="select-none object-contain {wasResized
+                ? 'w-full h-full'
                 : 'max-h-[calc(100vh-200px)] max-w-[calc(100vw-2rem)] sm:max-h-[calc(100vh-180px)] sm:max-w-full'}"
               draggable="false"
               data-testid="compressed-image"
@@ -806,7 +833,7 @@
           </div>
 
           <div
-            class="absolute inset-y-0 cursor-ew-resize"
+            class="absolute inset-y-0 cursor-ew-resize select-none"
             style="left: {job.slider}%;"
             data-testid="comparison-slider"
           >
@@ -847,7 +874,11 @@
       data-testid="image-info"
     >
       <p class="truncate" data-testid="image-name">{job.name}</p>
-      <p data-testid="image-dimensions">{job.width} × {job.height}</p>
+      {#if job.result && (job.result.width !== job.width || job.result.height !== job.height)}
+        <p data-testid="image-dimensions">{job.width} × {job.height} → {job.result.width} × {job.result.height}</p>
+      {:else}
+        <p data-testid="image-dimensions">{job.width} × {job.height}</p>
+      {/if}
     </div>
 
     <div
@@ -1075,7 +1106,7 @@
             max="16384"
             class="w-16 rounded bg-surface-2 px-2 py-1 text-neutral-300 text-xs"
             bind:value={resizeWidth}
-            onchange={handleWidthChange}
+            oninput={handleWidthInput}
             onkeydown={handleResizeKeydown}
             data-testid="resize-width-input"
           />
@@ -1086,7 +1117,7 @@
             max="16384"
             class="w-16 rounded bg-surface-2 px-2 py-1 text-neutral-300 text-xs"
             bind:value={resizeHeight}
-            onchange={handleHeightChange}
+            oninput={handleHeightInput}
             onkeydown={handleResizeKeydown}
             data-testid="resize-height-input"
           />

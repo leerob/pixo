@@ -20,15 +20,19 @@ Add a new version section at the top (below the header), following the existing 
 ## [X.X.X] - YYYY-MM-DD
 
 ### Added
+
 - New features...
 
 ### Changed
+
 - Changes to existing functionality...
 
 ### Fixed
+
 - Bug fixes...
 
 ### Removed
+
 - Removed features...
 ```
 
